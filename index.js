@@ -1,3 +1,5 @@
+console.log('STChatModelTemp: NEW CODE VERSION 2.0 - No file operations');
+
 import { eventSource, event_types, getRequestHeaders } from '../../../../script.js';
 import { extension_settings, getContext, saveSettingsDebounced } from '../../../extensions.js';
 
