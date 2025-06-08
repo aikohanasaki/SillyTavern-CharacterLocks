@@ -1,18 +1,20 @@
-import { eventSource, event_types, getRequestHeaders } from '../../../../../script.js';
-// import { getContext } from '../../../../extensions.js';
+import { eventSource, event_types, getRequestHeaders } from '../../../../script.js';
+import { extension_settings, getContext, saveSettingsDebounced } from '../../../extensions.js';
 
 const MODULE_NAME = 'STChatModelTemp';
 const SAVE_DEBOUNCE_TIME = 1000;
 
 // Supported Chat Completion sources - all available sources from SillyTavern
+// Based on data-source="openai,claude,windowai,openrouter,ai21,scale,makersuite,mistralai,custom,cohere,perplexity,groq,01ai,nanogpt,deepseek"
+// Plus blockentropy which also appears in the HTML
 const SUPPORTED_COMPLETION_SOURCES = [
     'openai', 'claude', 'windowai', 'openrouter', 'ai21', 'scale', 'makersuite', 
     'mistralai', 'custom', 'cohere', 'perplexity', 'groq', '01ai', 'nanogpt', 
     'deepseek', 'blockentropy'
 ];
 
-// Extension settings (stored locally)
-let extensionSettings = {
+// Extension settings (stored in SillyTavern's main settings)
+const defaultSettings = {
     moduleSettings: {
         enableCharacterMemory: true,
         enableChatMemory: true,
@@ -29,8 +31,15 @@ let currentCharacterSettings = null;
 let currentChatSettings = null;
 let isExtensionEnabled = false;
 
-// Debounced save function
-let saveTimeout = null;
+/**
+ * Get extension settings from SillyTavern's settings system
+ */
+function getExtensionSettings() {
+    if (!extension_settings.STChatModelTemp) {
+        extension_settings.STChatModelTemp = JSON.parse(JSON.stringify(defaultSettings));
+    }
+    return extension_settings.STChatModelTemp;
+}
 
 /**
  * Inject CSS styles into the document
@@ -141,6 +150,7 @@ function checkApiCompatibility() {
         isExtensionEnabled = isCompatible;
         updateExtensionState();
         
+        const extensionSettings = getExtensionSettings();
         if (extensionSettings.moduleSettings.showNotifications) {
             if (isCompatible) {
                                         toastr.info('STChatModelTemp extension enabled for Chat Completion API', 'STChatModelTemp');
@@ -214,7 +224,7 @@ function getApiSelectors() {
  */
 async function loadSettings() {
     try {
-        const response = await fetch('/scripts/extensions/STChatModelTemp/settings.json');
+        const response = await fetch('/data/default-user/extensions/STChatModelTemp/settings.json');
         if (response.ok) {
             const data = await response.json();
             // Merge with defaults to ensure all properties exist
@@ -235,60 +245,28 @@ async function loadSettings() {
 }
 
 /**
- * Save settings to local settings.json file with backup protection
+ * Clean up old settings (optional optimization)
  */
-async function saveSettings() {
-    try {
-        // First, try to create a backup if the file exists
-        try {
-            const backupResponse = await fetch('/scripts/extensions/STChatModelTemp/settings.json');
-            if (backupResponse.ok) {
-                const backupData = await backupResponse.text();
-                await fetch('/api/files/write', {
-                    method: 'POST',
-                    headers: getRequestHeaders(),
-                    body: JSON.stringify({
-                        path: 'scripts/extensions/STChatModelTemp/settings.json.bak',
-                        content: backupData
-                    })
-                });
-            }
-        } catch (backupError) {
-            // Backup failed, but continue with save
-            console.warn('STChatModelTemp: Could not create backup:', backupError);
-        }
-
-        // Save the current settings
-        const response = await fetch('/api/files/write', {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            body: JSON.stringify({
-                path: 'scripts/extensions/STChatModelTemp/settings.json',
-                content: JSON.stringify(extensionSettings, null, 2)
-            })
-        });
-        
-        if (!response.ok) {
-            console.error('STChatModelTemp: Failed to save settings:', response.statusText);
-            toastr.warning('Failed to save extension settings', 'STChatModelTemp');
-        }
-    } catch (error) {
-        console.error('STChatModelTemp: Error saving settings:', error);
-        toastr.error('Error saving extension settings', 'STChatModelTemp');
-    }
-}
-
-/**
- * Debounced save function
- */
-function saveSettingsDebounced() {
-    if (saveTimeout) {
-        clearTimeout(saveTimeout);
-    }
+function cleanupOldSettings() {
+    const maxAge = 90 * 24 * 60 * 60 * 1000; // 90 days
+    const now = new Date().getTime();
+    const extensionSettings = getExtensionSettings();
     
-    saveTimeout = setTimeout(() => {
-        saveSettings();
-    }, SAVE_DEBOUNCE_TIME);
+    // Clean character settings
+    Object.keys(extensionSettings.characterSettings).forEach(key => {
+        const setting = extensionSettings.characterSettings[key];
+        if (setting.savedAt && (now - new Date(setting.savedAt).getTime()) > maxAge) {
+            delete extensionSettings.characterSettings[key];
+        }
+    });
+    
+    // Clean chat settings  
+    Object.keys(extensionSettings.chatSettings).forEach(key => {
+        const setting = extensionSettings.chatSettings[key];
+        if (setting.savedAt && (now - new Date(setting.savedAt).getTime()) > maxAge) {
+            delete extensionSettings.chatSettings[key];
+        }
+    });
 }
 
 /**
@@ -298,8 +276,8 @@ async function init() {
     // Inject CSS styles
     injectStyles();
 
-    // Load extension settings from file
-    await loadSettings();
+    // Initialize extension settings (will use defaults if not set)
+    getExtensionSettings();
 
     // Create UI elements
     createUI();
@@ -317,6 +295,8 @@ async function init() {
  * Create UI elements for the extension
  */
 async function createUI() {
+    const extensionSettings = getExtensionSettings();
+    
     const container = $(`
         <div id="stchatmodeltemp-container" class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
@@ -395,26 +375,31 @@ async function createUI() {
 function setupEventListeners() {
     // Extension settings change handlers
     $('#stcmt-enable-character').on('change', function() {
+        const extensionSettings = getExtensionSettings();
         extensionSettings.moduleSettings.enableCharacterMemory = $(this).prop('checked');
         saveSettingsDebounced();
     });
 
     $('#stcmt-enable-chat').on('change', function() {
+        const extensionSettings = getExtensionSettings();
         extensionSettings.moduleSettings.enableChatMemory = $(this).prop('checked');
         saveSettingsDebounced();
     });
 
     $('#stcmt-prefer-character').on('change', function() {
+        const extensionSettings = getExtensionSettings();
         extensionSettings.moduleSettings.preferCharacterOverChat = $(this).prop('checked');
         saveSettingsDebounced();
     });
 
     $('#stcmt-auto-save').on('change', function() {
+        const extensionSettings = getExtensionSettings();
         extensionSettings.moduleSettings.autoSave = $(this).prop('checked');
         saveSettingsDebounced();
     });
 
     $('#stcmt-notifications').on('change', function() {
+        const extensionSettings = getExtensionSettings();
         extensionSettings.moduleSettings.showNotifications = $(this).prop('checked');
         saveSettingsDebounced();
     });
@@ -452,6 +437,7 @@ function setupEventListeners() {
  * Handle character change
  */
 async function onCharacterChanged() {
+    const extensionSettings = getExtensionSettings();
     if (!isExtensionEnabled || (!extensionSettings.moduleSettings.enableCharacterMemory && !extensionSettings.moduleSettings.enableChatMemory)) return;
 
     const context = getContext();
@@ -476,6 +462,7 @@ async function onCharacterChanged() {
  * Handle chat change
  */
 async function onChatChanged() {
+    const extensionSettings = getExtensionSettings();
     if (!isExtensionEnabled || !extensionSettings.moduleSettings.enableChatMemory) return;
 
     loadChatSettings();
@@ -487,14 +474,11 @@ async function onChatChanged() {
  * Handle model/temperature changes
  */
 function onModelSettingsChanged() {
+    const extensionSettings = getExtensionSettings();
     if (!isExtensionEnabled || !extensionSettings.moduleSettings.autoSave) return;
 
     // Debounce the save operation
-    if (saveTimeout) {
-        clearTimeout(saveTimeout);
-    }
-
-    saveTimeout = setTimeout(() => {
+    setTimeout(() => {
         saveCurrentSettings();
     }, SAVE_DEBOUNCE_TIME);
 }
@@ -503,6 +487,7 @@ function onModelSettingsChanged() {
  * Load character-specific settings
  */
 function loadCharacterSettings(characterId) {
+    const extensionSettings = getExtensionSettings();
     const characterKey = String(characterId);
     currentCharacterSettings = extensionSettings.characterSettings[characterKey] || null;
 }
@@ -511,6 +496,7 @@ function loadCharacterSettings(characterId) {
  * Load chat-specific settings
  */
 function loadChatSettings() {
+    const extensionSettings = getExtensionSettings();
     const context = getContext();
     if (!context.chatId) return;
 
@@ -524,6 +510,7 @@ function loadChatSettings() {
 function applySettings() {
     if (!isExtensionEnabled) return;
 
+    const extensionSettings = getExtensionSettings();
     let settingsToApply = null;
 
     if (extensionSettings.moduleSettings.preferCharacterOverChat) {
@@ -575,6 +562,7 @@ async function saveCurrentSettings() {
         return;
     }
 
+    const extensionSettings = getExtensionSettings();
     const context = getContext();
     const selectors = getApiSelectors();
     const completionSource = $('#chat_completion_source').val();
@@ -612,8 +600,8 @@ async function saveCurrentSettings() {
         }
     }
 
-    // Save to file
-    await saveSettings();
+    // Save to SillyTavern's settings
+    saveSettingsDebounced();
     updateUI();
 }
 
@@ -621,6 +609,7 @@ async function saveCurrentSettings() {
  * Clear character-specific settings
  */
 async function clearCharacterSettings() {
+    const extensionSettings = getExtensionSettings();
     const context = getContext();
     if (!context.characterId) return;
 
@@ -628,7 +617,7 @@ async function clearCharacterSettings() {
     delete extensionSettings.characterSettings[characterKey];
     currentCharacterSettings = null;
     
-    await saveSettings();
+    saveSettingsDebounced();
     updateUI();
     
     if (extensionSettings.moduleSettings.showNotifications) {
@@ -640,6 +629,7 @@ async function clearCharacterSettings() {
  * Clear chat-specific settings
  */
 async function clearChatSettings() {
+    const extensionSettings = getExtensionSettings();
     const context = getContext();
     if (!context.chatId) return;
 
@@ -647,7 +637,7 @@ async function clearChatSettings() {
     delete extensionSettings.chatSettings[chatKey];
     currentChatSettings = null;
     
-    await saveSettings();
+    saveSettingsDebounced();
     updateUI();
     
     if (extensionSettings.moduleSettings.showNotifications) {
