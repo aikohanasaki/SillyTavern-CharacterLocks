@@ -1,0 +1,13 @@
+{
+    "display_name": "STChatModelTemp",
+    "loading_order": 75,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "aikohanasaki",
+    "version": "1.0.0",
+    "homePage": "https://github.com/aikohanasaki/STChatModelTemp",
+    "auto_update": false,
+    "description": "Remembers model and temperature settings for each character and chat, with automatic save and restore."
+}
