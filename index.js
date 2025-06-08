@@ -1,12 +1,10 @@
-import { eventSource, event_types, getRequestHeaders } from '../../../script.js';
-import { getContext } from '../../extensions.js';
+import { eventSource, event_types, getRequestHeaders } from '../../../../script.js';
+import { getContext } from '../../../extensions.js';
 
 const MODULE_NAME = 'STChatModelTemp';
 const SAVE_DEBOUNCE_TIME = 1000;
 
 // Supported Chat Completion sources - all available sources from SillyTavern
-// Based on data-source="openai,claude,windowai,openrouter,ai21,scale,makersuite,mistralai,custom,cohere,perplexity,groq,01ai,nanogpt,deepseek"
-// Plus blockentropy which also appears in the HTML
 const SUPPORTED_COMPLETION_SOURCES = [
     'openai', 'claude', 'windowai', 'openrouter', 'ai21', 'scale', 'makersuite', 
     'mistralai', 'custom', 'cohere', 'perplexity', 'groq', '01ai', 'nanogpt', 
@@ -33,6 +31,104 @@ let isExtensionEnabled = false;
 
 // Debounced save function
 let saveTimeout = null;
+
+/**
+ * Inject CSS styles into the document
+ */
+function injectStyles() {
+    const css = `
+        #stchatmodeltemp-container {
+            margin: 10px 0;
+            border: 1px solid var(--SmartThemeBorderColor);
+            border-radius: 5px;
+            background-color: var(--SmartThemeBodyColor);
+        }
+
+        #stchatmodeltemp-container .inline-drawer-header {
+            background-color: var(--SmartThemeBlurTintColor);
+            padding: 10px;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-radius: 5px 5px 0 0;
+        }
+
+        #stchatmodeltemp-container .inline-drawer-header:hover {
+            background-color: var(--SmartThemeBlurTintColorLighter);
+        }
+
+        #stchatmodeltemp-container .inline-drawer-content {
+            padding: 15px;
+            display: none;
+        }
+
+        #stchatmodeltemp-container .inline-drawer-icon {
+            transition: transform 0.3s ease;
+        }
+
+        #stchatmodeltemp-container .inline-drawer-icon.up {
+            transform: rotate(180deg);
+        }
+
+        #stcmt-character-info,
+        #stcmt-chat-info {
+            font-family: monospace;
+            font-size: 12px;
+            color: var(--SmartThemeQuoteColor);
+            background-color: var(--SmartThemeQuoteBackgroundColor);
+            padding: 5px;
+            border-radius: 3px;
+            border-left: 3px solid var(--SmartThemeQuoteColor);
+        }
+
+        #stchatmodeltemp-container .checkbox_label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0;
+        }
+
+        #stchatmodeltemp-container .checkbox_label input[type="checkbox"] {
+            margin: 0;
+        }
+
+        #stchatmodeltemp-container .menu_button {
+            flex: 1;
+            padding: 6px 12px;
+            font-size: 12px;
+            min-height: auto;
+        }
+
+        #stchatmodeltemp-container .margin-bot-10px {
+            margin-bottom: 10px;
+        }
+
+        #stchatmodeltemp-container .margin-5px {
+            margin: 5px 0;
+        }
+
+        #stchatmodeltemp-container .flex-container {
+            display: flex;
+            flex-wrap: wrap;
+        }
+
+        #stchatmodeltemp-container .flexGap5 {
+            gap: 5px;
+        }
+
+        #stchatmodeltemp-container.extension-disabled {
+            opacity: 0.6;
+        }
+
+        #stchatmodeltemp-container.extension-disabled .inline-drawer-content {
+            background-color: #333;
+        }
+    `;
+
+    $('<style>').prop('type', 'text/css').html(css).appendTo('head');
+}
 
 // Supports ALL Chat Completion sources available in SillyTavernvas of June 8, 2025
 function checkApiCompatibility() {
@@ -199,6 +295,9 @@ function saveSettingsDebounced() {
  * Initialize the extension
  */
 async function init() {
+    // Inject CSS styles
+    injectStyles();
+
     // Load extension settings from file
     await loadSettings();
 
@@ -288,16 +387,6 @@ async function createUI() {
         content.slideToggle();
         icon.toggleClass('down up');
     });
-
-    // Add CSS for disabled state
-    $('<style>').prop('type', 'text/css').html(`
-        #stchatmodeltemp-container.extension-disabled {
-            opacity: 0.6;
-        }
-        #stchatmodeltemp-container.extension-disabled .inline-drawer-content {
-            background-color: #333;
-        }
-    `).appendTo('head');
 }
 
 /**
