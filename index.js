@@ -220,43 +220,21 @@ function getApiSelectors() {
 }
 
 /**
- * Load settings from local settings.json file
- */
-async function loadSettings() {
-    try {
-        const response = await fetch('/data/default-user/extensions/STChatModelTemp/settings.json');
-        if (response.ok) {
-            const data = await response.json();
-            // Merge with defaults to ensure all properties exist
-            extensionSettings = {
-                moduleSettings: { ...extensionSettings.moduleSettings, ...data.moduleSettings },
-                characterSettings: { ...data.characterSettings },
-                chatSettings: { ...data.chatSettings }
-            };
-            console.log('STChatModelTemp: Settings loaded from file');
-        } else if (response.status === 404) {
-            console.log('STChatModelTemp: No settings file found, creating with defaults');
-            await saveSettings(); // Create the file with defaults
-        }
-    } catch (error) {
-        console.log('STChatModelTemp: Error loading settings, using defaults:', error);
-        // Don't try to save here in case of network issues
-    }
-}
-
-/**
- * Clean up old settings (optional optimization)
+ * Clean up old settings (optional optimization - call manually if needed)
  */
 function cleanupOldSettings() {
     const maxAge = 90 * 24 * 60 * 60 * 1000; // 90 days
     const now = new Date().getTime();
     const extensionSettings = getExtensionSettings();
     
+    let cleaned = 0;
+    
     // Clean character settings
     Object.keys(extensionSettings.characterSettings).forEach(key => {
         const setting = extensionSettings.characterSettings[key];
         if (setting.savedAt && (now - new Date(setting.savedAt).getTime()) > maxAge) {
             delete extensionSettings.characterSettings[key];
+            cleaned++;
         }
     });
     
@@ -265,8 +243,16 @@ function cleanupOldSettings() {
         const setting = extensionSettings.chatSettings[key];
         if (setting.savedAt && (now - new Date(setting.savedAt).getTime()) > maxAge) {
             delete extensionSettings.chatSettings[key];
+            cleaned++;
         }
     });
+    
+    if (cleaned > 0) {
+        saveSettingsDebounced();
+        console.log(`STChatModelTemp: Cleaned up ${cleaned} old settings`);
+    }
+    
+    return cleaned;
 }
 
 /**
@@ -655,7 +641,7 @@ function updateUI() {
     const mainApi = $('#main_api').val();
     
     if (isExtensionEnabled) {
-                            statusText.text(`Active (${completionSource})`).css('color', '#4CAF50');
+        statusText.text(`Active (${completionSource})`).css('color', '#4CAF50');
     } else {
         statusText.text(`STChatModelTemp is only compatible with Chat Completion API, current: ${mainApi})`).css('color', '#f44336');
     }
