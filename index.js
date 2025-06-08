@@ -1,5 +1,5 @@
-import { eventSource, event_types, getRequestHeaders } from '../../../../../script.js';
-import { getContext } from '../../../../extensions.js';
+import { eventSource, event_types, getRequestHeaders } from '../../../script.js';
+import { getContext } from '../../extensions.js';
 
 const MODULE_NAME = 'STChatModelTemp';
 const SAVE_DEBOUNCE_TIME = 1000;
