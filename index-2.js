@@ -1,6 +1,6 @@
 console.log('STChatModelTemp: NEW CODE VERSION 2.0 - No file operations');
 
-import { eventSource, event_types } from '../../../../script.js';
+import { eventSource, event_types, getRequestHeaders } from '../../../../script.js';
 import { extension_settings, getContext, saveSettingsDebounced } from '../../../extensions.js';
 
 const MODULE_NAME = 'STChatModelTemp';
@@ -261,14 +261,11 @@ function cleanupOldSettings() {
  * Initialize the extension
  */
 async function init() {
-    console.log('STChatModelTemp: Starting initialization...');
-    
     // Inject CSS styles
     injectStyles();
 
     // Initialize extension settings (will use defaults if not set)
-    const settings = getExtensionSettings();
-    console.log('STChatModelTemp: Settings initialized:', settings);
+    getExtensionSettings();
 
     // Create UI elements
     createUI();
@@ -279,7 +276,7 @@ async function init() {
     // Check initial API compatibility
     checkApiCompatibility();
 
-    console.log('STChatModelTemp: Extension loaded successfully');
+    console.log('STChatModelTemp extension loaded');
 }
 
 /**
