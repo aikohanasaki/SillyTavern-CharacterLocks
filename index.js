@@ -1,21 +1,19 @@
-console.log('STChatModelTemp: NEW CODE VERSION 2.0 - No file operations');
-
-import { eventSource, event_types } from '../../../../script.js';
+import { eventSource, event_types, getRequestHeaders } from '../../../../script.js';
 import { extension_settings, getContext, saveSettingsDebounced } from '../../../extensions.js';
+
+console.log('🔥 STChatModelTemp: FRESH CODE LOADED - NO FILE OPERATIONS 🔥');
 
 const MODULE_NAME = 'STChatModelTemp';
 const SAVE_DEBOUNCE_TIME = 1000;
 
-// Supported Chat Completion sources - all available sources from SillyTavern
-// Based on data-source="openai,claude,windowai,openrouter,ai21,scale,makersuite,mistralai,custom,cohere,perplexity,groq,01ai,nanogpt,deepseek"
-// Plus blockentropy which also appears in the HTML
+// Supported Chat Completion sources
 const SUPPORTED_COMPLETION_SOURCES = [
     'openai', 'claude', 'windowai', 'openrouter', 'ai21', 'scale', 'makersuite', 
     'mistralai', 'custom', 'cohere', 'perplexity', 'groq', '01ai', 'nanogpt', 
     'deepseek', 'blockentropy'
 ];
 
-// Extension settings (stored in SillyTavern's main settings)
+// Default settings structure
 const defaultSettings = {
     moduleSettings: {
         enableCharacterMemory: true,
@@ -24,8 +22,8 @@ const defaultSettings = {
         autoSave: true,
         showNotifications: false
     },
-    characterSettings: {}, // { characterId: { model, temperature, completionSource, savedAt } }
-    chatSettings: {} // { chatId: { model, temperature, completionSource, savedAt } }
+    characterSettings: {},
+    chatSettings: {}
 };
 
 // Current cached settings for active character/chat
@@ -39,6 +37,7 @@ let isExtensionEnabled = false;
 function getExtensionSettings() {
     if (!extension_settings.STChatModelTemp) {
         extension_settings.STChatModelTemp = JSON.parse(JSON.stringify(defaultSettings));
+        console.log('STChatModelTemp: Created new settings with defaults');
     }
     return extension_settings.STChatModelTemp;
 }
@@ -141,7 +140,9 @@ function injectStyles() {
     $('<style>').prop('type', 'text/css').html(css).appendTo('head');
 }
 
-// Supports ALL Chat Completion sources available in SillyTavernvas of June 8, 2025
+/**
+ * Check API compatibility
+ */
 function checkApiCompatibility() {
     const mainApi = $('#main_api').val();
     const completionSource = $('#chat_completion_source').val();
@@ -155,9 +156,9 @@ function checkApiCompatibility() {
         const extensionSettings = getExtensionSettings();
         if (extensionSettings.moduleSettings.showNotifications) {
             if (isCompatible) {
-                                        toastr.info('STChatModelTemp extension enabled for Chat Completion API', 'STChatModelTemp');
+                toastr.info('STChatModelTemp extension enabled for Chat Completion API', 'STChatModelTemp');
             } else {
-                toastr.warning('STChatModelTemp STChatModelTemp requires Chat Completion API', 'STChatModelTemp');
+                toastr.warning('STChatModelTemp requires Chat Completion API', 'STChatModelTemp');
             }
         }
     }
@@ -180,7 +181,6 @@ function updateExtensionState() {
         container.addClass('extension-disabled');
         content.find('input, button, select').prop('disabled', true);
         
-        // Update info displays
         $('#stcmt-character-info').text('STChatModelTemp requires Chat Completion API');
         $('#stcmt-chat-info').text('STChatModelTemp requires Chat Completion API');
     }
@@ -188,13 +188,10 @@ function updateExtensionState() {
 
 /**
  * Get the correct model selector based on completion source
- * Temperature controls are shared across all completion sources
- * Model selectors found by examining the HTML forms for each completion source
  */
 function getApiSelectors() {
     const completionSource = $('#chat_completion_source').val();
     
-    // Map completion sources to their respective model selector IDs
     const modelSelectorMap = {
         'openai': '#model_openai_select',
         'claude': '#model_claude_select',
@@ -216,59 +213,23 @@ function getApiSelectors() {
     
     return {
         model: modelSelectorMap[completionSource] || '#model_openai_select',
-        temp: '#temp_openai',  // Shared across all completion sources
-        tempCounter: '#temp_counter_openai'  // Shared across all completion sources
+        temp: '#temp_openai',
+        tempCounter: '#temp_counter_openai'
     };
 }
 
 /**
- * Clean up old settings (optional optimization - call manually if needed)
- */
-function cleanupOldSettings() {
-    const maxAge = 90 * 24 * 60 * 60 * 1000; // 90 days
-    const now = new Date().getTime();
-    const extensionSettings = getExtensionSettings();
-    
-    let cleaned = 0;
-    
-    // Clean character settings
-    Object.keys(extensionSettings.characterSettings).forEach(key => {
-        const setting = extensionSettings.characterSettings[key];
-        if (setting.savedAt && (now - new Date(setting.savedAt).getTime()) > maxAge) {
-            delete extensionSettings.characterSettings[key];
-            cleaned++;
-        }
-    });
-    
-    // Clean chat settings  
-    Object.keys(extensionSettings.chatSettings).forEach(key => {
-        const setting = extensionSettings.chatSettings[key];
-        if (setting.savedAt && (now - new Date(setting.savedAt).getTime()) > maxAge) {
-            delete extensionSettings.chatSettings[key];
-            cleaned++;
-        }
-    });
-    
-    if (cleaned > 0) {
-        saveSettingsDebounced();
-        console.log(`STChatModelTemp: Cleaned up ${cleaned} old settings`);
-    }
-    
-    return cleaned;
-}
-
-/**
- * Initialize the extension
+ * Initialize the extension - NO FILE OPERATIONS!
  */
 async function init() {
-    console.log('STChatModelTemp: Starting initialization...');
+    console.log('STChatModelTemp: Initializing with SillyTavern settings system');
     
     // Inject CSS styles
     injectStyles();
 
-    // Initialize extension settings (will use defaults if not set)
+    // Initialize extension settings using SillyTavern's system
     const settings = getExtensionSettings();
-    console.log('STChatModelTemp: Settings initialized:', settings);
+    console.log('STChatModelTemp: Settings ready:', Object.keys(settings));
 
     // Create UI elements
     createUI();
@@ -285,7 +246,7 @@ async function init() {
 /**
  * Create UI elements for the extension
  */
-async function createUI() {
+function createUI() {
     const extensionSettings = getExtensionSettings();
     
     const container = $(`
@@ -347,10 +308,8 @@ async function createUI() {
         </div>
     `);
 
-    // Add to extensions menu
     $('#extensionsMenu').append(container);
 
-    // Make it collapsible
     $('#stchatmodeltemp-container .inline-drawer-toggle').on('click', function() {
         const content = $(this).siblings('.inline-drawer-content');
         const icon = $(this).find('.inline-drawer-icon');
@@ -364,7 +323,6 @@ async function createUI() {
  * Set up event listeners
  */
 function setupEventListeners() {
-    // Extension settings change handlers
     $('#stcmt-enable-character').on('change', function() {
         const extensionSettings = getExtensionSettings();
         extensionSettings.moduleSettings.enableCharacterMemory = $(this).prop('checked');
@@ -395,16 +353,13 @@ function setupEventListeners() {
         saveSettingsDebounced();
     });
 
-    // Manual action buttons
     $('#stcmt-save-now').on('click', saveCurrentSettings);
     $('#stcmt-clear-character').on('click', clearCharacterSettings);
     $('#stcmt-clear-chat').on('click', clearChatSettings);
 
-    // Character/chat change events
     eventSource.on(event_types.CHARACTER_SELECTED, onCharacterChanged);
     eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
 
-    // API change events - monitor for API type changes
     $(document).on('change', '#main_api, #chat_completion_source', function() {
         checkApiCompatibility();
         if (isExtensionEnabled) {
@@ -412,7 +367,6 @@ function setupEventListeners() {
         }
     });
 
-    // Model/temperature change events - monitor all completion source model selectors
     $(document).on('change', [
         '#model_openai_select', '#model_claude_select', '#model_windowai_select', 
         '#model_openrouter_select', '#model_ai21_select', '#model_scale_select', 
@@ -434,17 +388,14 @@ async function onCharacterChanged() {
     const context = getContext();
     if (!context.characterId) return;
 
-    // Load character settings
     if (extensionSettings.moduleSettings.enableCharacterMemory) {
         loadCharacterSettings(context.characterId);
     }
 
-    // Load chat settings
     if (extensionSettings.moduleSettings.enableChatMemory) {
         loadChatSettings();
     }
 
-    // Apply the appropriate settings
     applySettings();
     updateUI();
 }
@@ -468,7 +419,6 @@ function onModelSettingsChanged() {
     const extensionSettings = getExtensionSettings();
     if (!isExtensionEnabled || !extensionSettings.moduleSettings.autoSave) return;
 
-    // Debounce the save operation
     setTimeout(() => {
         saveCurrentSettings();
     }, SAVE_DEBOUNCE_TIME);
@@ -515,7 +465,6 @@ function applySettings() {
     const selectors = getApiSelectors();
     const currentCompletionSource = $('#chat_completion_source').val();
 
-    // Only apply if the completion source matches
     if (settingsToApply.completionSource && settingsToApply.completionSource !== currentCompletionSource) {
         if (extensionSettings.moduleSettings.showNotifications) {
             toastr.warning(`Saved settings for ${settingsToApply.completionSource}, current source is ${currentCompletionSource}`, 'STChatModelTemp');
@@ -523,12 +472,10 @@ function applySettings() {
         return;
     }
 
-    // Apply model setting
     if (settingsToApply.model && $(selectors.model).length) {
         $(selectors.model).val(settingsToApply.model).trigger('change');
     }
 
-    // Apply temperature setting
     if (settingsToApply.temperature !== undefined) {
         if ($(selectors.temp).length) {
             $(selectors.temp).val(settingsToApply.temperature);
@@ -547,9 +494,9 @@ function applySettings() {
 /**
  * Save current model and temperature settings
  */
-async function saveCurrentSettings() {
+function saveCurrentSettings() {
     if (!isExtensionEnabled) {
-        toastr.warning('Cannot save engine/temp settings - STChatModelTemp is only compatible with Chat Completion API', 'STChatModelTemp');
+        toastr.warning('Cannot save settings - STChatModelTemp requires Chat Completion API', 'STChatModelTemp');
         return;
     }
 
@@ -558,7 +505,6 @@ async function saveCurrentSettings() {
     const selectors = getApiSelectors();
     const completionSource = $('#chat_completion_source').val();
     
-    // Get current model and temperature
     const currentModel = $(selectors.model).val();
     const currentTemp = parseFloat($(selectors.temp).val() || $(selectors.tempCounter).val() || 0.7);
     
@@ -569,7 +515,6 @@ async function saveCurrentSettings() {
         savedAt: new Date().toISOString()
     };
 
-    // Save to character if enabled and character is selected
     if (extensionSettings.moduleSettings.enableCharacterMemory && context.characterId) {
         const characterKey = String(context.characterId);
         extensionSettings.characterSettings[characterKey] = settingsData;
@@ -580,7 +525,6 @@ async function saveCurrentSettings() {
         }
     }
 
-    // Save to chat if enabled and chat is active
     if (extensionSettings.moduleSettings.enableChatMemory && context.chatId) {
         const chatKey = String(context.chatId);
         extensionSettings.chatSettings[chatKey] = settingsData;
@@ -591,7 +535,6 @@ async function saveCurrentSettings() {
         }
     }
 
-    // Save to SillyTavern's settings
     saveSettingsDebounced();
     updateUI();
 }
@@ -599,7 +542,7 @@ async function saveCurrentSettings() {
 /**
  * Clear character-specific settings
  */
-async function clearCharacterSettings() {
+function clearCharacterSettings() {
     const extensionSettings = getExtensionSettings();
     const context = getContext();
     if (!context.characterId) return;
@@ -619,7 +562,7 @@ async function clearCharacterSettings() {
 /**
  * Clear chat-specific settings
  */
-async function clearChatSettings() {
+function clearChatSettings() {
     const extensionSettings = getExtensionSettings();
     const context = getContext();
     if (!context.chatId) return;
@@ -640,7 +583,6 @@ async function clearChatSettings() {
  * Update UI with current settings info
  */
 function updateUI() {
-    // Update API status
     const statusText = $('#stcmt-api-status-text');
     const completionSource = $('#chat_completion_source').val();
     const mainApi = $('#main_api').val();
@@ -648,12 +590,12 @@ function updateUI() {
     if (isExtensionEnabled) {
         statusText.text(`Active (${completionSource})`).css('color', '#4CAF50');
     } else {
-        statusText.text(`STChatModelTemp is only compatible with Chat Completion API, current: ${mainApi})`).css('color', '#f44336');
+        statusText.text(`Requires Chat Completion API (current: ${mainApi})`).css('color', '#f44336');
     }
 
     if (!isExtensionEnabled) {
-        $('#stcmt-character-info').text('STChatModelTemp is only compatible with Chat Completion API');
-        $('#stcmt-chat-info').text('STChatModelTemp is only compatible with Chat Completion API');
+        $('#stcmt-character-info').text('Requires Chat Completion API');
+        $('#stcmt-chat-info').text('Requires Chat Completion API');
         return;
     }
 
