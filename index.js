@@ -1,4 +1,4 @@
-import { eventSource, event_types } from '../../../../script.js';
+import { eventSource, event_types, getContext } from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../script.js';
 
@@ -42,7 +42,7 @@ function getExtensionSettings() {
 }
 
 /**
- * Inject minimal CSS styles (only what's not available in SillyTavern)
+ * Inject minimal CSS styles for popup-specific elements
  */
 function injectStyles() {
     const css = `
@@ -57,24 +57,32 @@ function injectStyles() {
             border-left: 3px solid var(--SmartThemeQuoteColor);
             margin: 5px 0;
             word-break: break-all;
+            white-space: pre-line;
         }
 
-        #stchatmodeltemp-container.extension-disabled {
+        #stcmt-popup.extension-disabled #stcmt-popup-content {
             opacity: 0.6;
-        }
-
-        #stchatmodeltemp-container.extension-disabled .inline-drawer-content {
-            background-color: var(--black50a);
         }
 
         #stcmt-api-status {
             font-size: calc(var(--mainFontSize) * 0.9);
             padding: 5px 0;
             text-align: center;
+            margin-bottom: 10px;
         }
 
         #stcmt-api-status-text {
             font-weight: 600;
+        }
+
+        #stcmt-popup-content .checkbox_label {
+            margin: 8px 0;
+        }
+
+        #stcmt-popup-content h5 {
+            margin-top: 15px;
+            margin-bottom: 5px;
+            color: var(--SmartThemeQuoteColor);
         }
     `;
 
@@ -111,16 +119,15 @@ function checkApiCompatibility() {
  * Update extension UI state based on compatibility
  */
 function updateExtensionState() {
-    const container = $('#stchatmodeltemp-container');
-    const content = container.find('.inline-drawer-content');
+    const popup = $('#stcmt-popup');
     
     if (isExtensionEnabled) {
-        container.removeClass('extension-disabled');
-        content.find('input, button, select').prop('disabled', false);
+        popup.removeClass('extension-disabled');
+        popup.find('input, button, select').prop('disabled', false);
         updateUI();
     } else {
-        container.addClass('extension-disabled');
-        content.find('input, button, select').prop('disabled', true);
+        popup.addClass('extension-disabled');
+        popup.find('input, button, select').prop('disabled', true);
         
         $('#stcmt-character-info').text('STChatModelTemp requires Chat Completion API');
         $('#stcmt-chat-info').text('STChatModelTemp requires Chat Completion API');
@@ -160,6 +167,23 @@ function getApiSelectors() {
 }
 
 /**
+ * Show the popup
+ */
+function showPopup() {
+    $('#shadow_popup').fadeIn(200);
+    $('#stcmt-popup').fadeIn(200);
+    updateUI();
+}
+
+/**
+ * Hide the popup
+ */
+function hidePopup() {
+    $('#shadow_popup').fadeOut(200);
+    $('#stcmt-popup').fadeOut(200);
+}
+
+/**
  * Initialize the extension
  */
 async function init() {
@@ -185,56 +209,80 @@ async function init() {
 }
 
 /**
- * Create UI elements using SillyTavern's existing classes
+ * Create UI elements using SillyTavern's popup system
  */
 function createUI() {
     const extensionSettings = getExtensionSettings();
     
-    const container = $(`
-        <div id="stchatmodeltemp-container" class="inline-drawer">
-            <div class="inline-drawer-toggle inline-drawer-header">
-                <b>STChatModelTemp</b>
-                <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
-            </div>
-            <div class="inline-drawer-content">
-                <div id="stcmt-api-status">
-                    <small class="text_muted">
-                        API Status: <span id="stcmt-api-status-text">Checking...</span>
-                    </small>
+    // Add menu item to extensions dropdown
+    const menuItem = $(`
+        <div class="list-group-item" id="stcmt-menu-item">
+            <i class="fa-solid fa-brain"></i>
+            <span>Model Memory</span>
+        </div>
+    `);
+    
+    // Find the list-group in extensions menu or create it
+    let extensionsList = $('#extensionsMenu .list-group');
+    if (extensionsList.length === 0) {
+        extensionsList = $('<div class="list-group"></div>');
+        $('#extensionsMenu').append(extensionsList);
+    }
+    extensionsList.append(menuItem);
+    
+    // Create the popup using SillyTavern's popup structure
+    const popup = $(`
+        <div id="stcmt-popup" style="display: none; z-index: 9999; position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); 
+             background-color: var(--SmartThemeBlurTintColor); border: 1px solid var(--SmartThemeBorderColor); 
+             border-radius: 10px; backdrop-filter: blur(var(--SmartThemeBlurStrength)); 
+             -webkit-backdrop-filter: blur(var(--SmartThemeBlurStrength)); box-shadow: 0px 0px 14px var(--black70a); 
+             max-width: 500px; max-height: 80vh; width: 90vw;">
+            <div id="stcmt-popup-holder" style="display: flex; flex-direction: column; height: 100%; padding: 20px; overflow: hidden;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="margin: 0; color: var(--SmartThemeBodyColor);">🧠 Model Memory Settings</h3>
+                    <div id="stcmt-close-popup" style="cursor: pointer; font-size: 20px; color: var(--SmartThemeBodyColor); opacity: 0.7;">✕</div>
                 </div>
                 
-                <label class="checkbox_label">
-                    <input type="checkbox" id="stcmt-enable-character" ${extensionSettings.moduleSettings.enableCharacterMemory ? 'checked' : ''}>
-                    <span>Remember per character</span>
-                </label>
+                <div id="stcmt-popup-content" style="flex-grow: 1; overflow-y: auto;">
+                    <div id="stcmt-api-status">
+                        <small class="text_muted">
+                            API Status: <span id="stcmt-api-status-text">Checking...</span>
+                        </small>
+                    </div>
+                    
+                    <label class="checkbox_label">
+                        <input type="checkbox" id="stcmt-enable-character" ${extensionSettings.moduleSettings.enableCharacterMemory ? 'checked' : ''}>
+                        <span>Remember per character</span>
+                    </label>
+                    
+                    <label class="checkbox_label">
+                        <input type="checkbox" id="stcmt-enable-chat" ${extensionSettings.moduleSettings.enableChatMemory ? 'checked' : ''}>
+                        <span>Remember per chat</span>
+                    </label>
+                    
+                    <label class="checkbox_label">
+                        <input type="checkbox" id="stcmt-prefer-character" ${extensionSettings.moduleSettings.preferCharacterOverChat ? 'checked' : ''}>
+                        <span>Prefer character settings over chat</span>
+                    </label>
+                    
+                    <label class="checkbox_label">
+                        <input type="checkbox" id="stcmt-auto-save" ${extensionSettings.moduleSettings.autoSave ? 'checked' : ''}>
+                        <span>Auto-save settings</span>
+                    </label>
+                    
+                    <label class="checkbox_label">
+                        <input type="checkbox" id="stcmt-notifications" ${extensionSettings.moduleSettings.showNotifications ? 'checked' : ''}>
+                        <span>Show notifications</span>
+                    </label>
+                    
+                    <h5>Current Character Settings:</h5>
+                    <div id="stcmt-character-info">No character selected</div>
+                    
+                    <h5>Current Chat Settings:</h5>
+                    <div id="stcmt-chat-info">No chat selected</div>
+                </div>
                 
-                <label class="checkbox_label">
-                    <input type="checkbox" id="stcmt-enable-chat" ${extensionSettings.moduleSettings.enableChatMemory ? 'checked' : ''}>
-                    <span>Remember per chat</span>
-                </label>
-                
-                <label class="checkbox_label">
-                    <input type="checkbox" id="stcmt-prefer-character" ${extensionSettings.moduleSettings.preferCharacterOverChat ? 'checked' : ''}>
-                    <span>Prefer character settings over chat</span>
-                </label>
-                
-                <label class="checkbox_label">
-                    <input type="checkbox" id="stcmt-auto-save" ${extensionSettings.moduleSettings.autoSave ? 'checked' : ''}>
-                    <span>Auto-save settings</span>
-                </label>
-                
-                <label class="checkbox_label">
-                    <input type="checkbox" id="stcmt-notifications" ${extensionSettings.moduleSettings.showNotifications ? 'checked' : ''}>
-                    <span>Show notifications</span>
-                </label>
-                
-                <h5>Current Character Settings:</h5>
-                <div id="stcmt-character-info">No character selected</div>
-                
-                <h5>Current Chat Settings:</h5>
-                <div id="stcmt-chat-info">No chat selected</div>
-                
-                <div class="buttons_block" style="margin-top: 10px; justify-content: flex-start; gap: 5px; flex-wrap: wrap;">
+                <div style="display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap; justify-content: center;">
                     <button id="stcmt-save-now" class="menu_button">💾 Save Current</button>
                     <button id="stcmt-clear-character" class="menu_button">🗑️ Clear Character</button>
                     <button id="stcmt-clear-chat" class="menu_button">🗑️ Clear Chat</button>
@@ -243,63 +291,70 @@ function createUI() {
         </div>
     `);
 
-    $('#extensionsMenu').append(container);
-
-    // Set up drawer toggle functionality with proper icon rotation
-    $('#stchatmodeltemp-container .inline-drawer-toggle').on('click', function() {
-        const content = $(this).siblings('.inline-drawer-content');
-        const icon = $(this).find('.inline-drawer-icon');
-        
-        content.slideToggle(200, function() {
-            // Toggle icon classes after animation completes
-            if (content.is(':visible')) {
-                icon.removeClass('down').addClass('up');
-            } else {
-                icon.removeClass('up').addClass('down');
-            }
-        });
-    });
+    // Add popup to body
+    $('body').append(popup);
 }
 
 /**
  * Set up event listeners with debouncing
  */
 function setupEventListeners() {
+    // Menu item click handler
+    $(document).on('click', '#stcmt-menu-item', function() {
+        showPopup();
+    });
+    
+    // Close popup handlers
+    $(document).on('click', '#stcmt-close-popup', hidePopup);
+    $(document).on('click', '#shadow_popup', hidePopup);
+    
+    // Prevent popup from closing when clicking inside it
+    $(document).on('click', '#stcmt-popup', function(e) {
+        e.stopPropagation();
+    });
+    
+    // ESC key to close popup
+    $(document).on('keydown', function(e) {
+        if (e.key === 'Escape' && $('#stcmt-popup').is(':visible')) {
+            hidePopup();
+        }
+    });
+
     // Settings change handlers
-    $('#stcmt-enable-character').on('change', function() {
+    $(document).on('change', '#stcmt-enable-character', function() {
         const extensionSettings = getExtensionSettings();
         extensionSettings.moduleSettings.enableCharacterMemory = $(this).prop('checked');
         saveSettingsDebounced();
     });
 
-    $('#stcmt-enable-chat').on('change', function() {
+    $(document).on('change', '#stcmt-enable-chat', function() {
         const extensionSettings = getExtensionSettings();
         extensionSettings.moduleSettings.enableChatMemory = $(this).prop('checked');
         saveSettingsDebounced();
     });
 
-    $('#stcmt-prefer-character').on('change', function() {
+    $(document).on('change', '#stcmt-prefer-character', function() {
         const extensionSettings = getExtensionSettings();
         extensionSettings.moduleSettings.preferCharacterOverChat = $(this).prop('checked');
         saveSettingsDebounced();
     });
 
-    $('#stcmt-auto-save').on('change', function() {
+    $(document).on('change', '#stcmt-auto-save', function() {
         const extensionSettings = getExtensionSettings();
         extensionSettings.moduleSettings.autoSave = $(this).prop('checked');
         saveSettingsDebounced();
     });
 
-    $('#stcmt-notifications').on('change', function() {
+    $(document).on('change', '#stcmt-notifications', function() {
         const extensionSettings = getExtensionSettings();
         extensionSettings.moduleSettings.showNotifications = $(this).prop('checked');
         saveSettingsDebounced();
     });
 
     // Button handlers
-    $('#stcmt-save-now').on('click', saveCurrentSettings);
-    $('#stcmt-clear-character').on('click', clearCharacterSettings);
-    $('#stcmt-clear-chat').on('click', clearChatSettings);
+    $(document).on('click', '#stcmt-save-now', saveCurrentSettings);
+    $(document).on('click', '#stcmt-clear-character', clearCharacterSettings);
+    $(document).on('click', '#stcmt-clear-chat', clearChatSettings);
 
     // SillyTavern event handlers
     eventSource.on(event_types.CHARACTER_SELECTED, onCharacterChanged);
@@ -309,7 +364,7 @@ function setupEventListeners() {
     $(document).on('change', '#main_api, #chat_completion_source', function() {
         checkApiCompatibility();
         if (isExtensionEnabled) {
-            setTimeout(onCharacterChanged, 100); // Small delay to ensure API change is processed
+            setTimeout(onCharacterChanged, 100);
         }
     });
 
