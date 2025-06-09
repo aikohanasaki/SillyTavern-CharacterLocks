@@ -1,4 +1,4 @@
-import { eventSource, event_types, getContext } from '../../../../script.js';
+import { eventSource, event_types } from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../script.js';
 
@@ -135,8 +135,15 @@ function updateExtensionState() {
 }
 
 /**
- * Get the correct model selector based on completion source
+ * Get current context information using SillyTavern globals
  */
+function getCurrentContext() {
+    return {
+        characterId: window.this_chid,
+        chatId: window.getCurrentChatId ? window.getCurrentChatId() : null,
+        groupId: window.selected_group
+    };
+}
 function getApiSelectors() {
     const completionSource = $('#chat_completion_source').val();
     
@@ -390,7 +397,7 @@ async function onCharacterChanged() {
     const extensionSettings = getExtensionSettings();
     if (!isExtensionEnabled || (!extensionSettings.moduleSettings.enableCharacterMemory && !extensionSettings.moduleSettings.enableChatMemory)) return;
 
-    const context = getContext();
+    const context = getCurrentContext();
     if (!context.characterId) return;
 
     if (extensionSettings.moduleSettings.enableCharacterMemory) {
@@ -441,7 +448,7 @@ function loadCharacterSettings(characterId) {
  */
 function loadChatSettings() {
     const extensionSettings = getExtensionSettings();
-    const context = getContext();
+    const context = getCurrentContext();
     if (!context.chatId) return;
 
     const chatKey = String(context.chatId);
@@ -504,7 +511,7 @@ function saveCurrentSettings() {
     }
 
     const extensionSettings = getExtensionSettings();
-    const context = getContext();
+    const context = getCurrentContext();
     const selectors = getApiSelectors();
     const completionSource = $('#chat_completion_source').val();
     
@@ -547,7 +554,7 @@ function saveCurrentSettings() {
  */
 function clearCharacterSettings() {
     const extensionSettings = getExtensionSettings();
-    const context = getContext();
+    const context = getCurrentContext();
     if (!context.characterId) return;
 
     const characterKey = String(context.characterId);
@@ -567,7 +574,7 @@ function clearCharacterSettings() {
  */
 function clearChatSettings() {
     const extensionSettings = getExtensionSettings();
-    const context = getContext();
+    const context = getCurrentContext();
     if (!context.chatId) return;
 
     const chatKey = String(context.chatId);
