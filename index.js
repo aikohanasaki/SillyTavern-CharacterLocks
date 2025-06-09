@@ -1,5 +1,5 @@
-import { eventSource, event_types, getRequestHeaders } from '../../../../script.js';
-import { extension_settings, getContext, saveSettingsDebounced } from '../../../extensions.js';
+import { eventSource, event_types } from '../../../../script.js';
+import { extension_settings, saveSettingsDebounced } from '../../../extensions.js';
 
 console.log('🔥 STChatModelTemp: FRESH CODE LOADED - NO FILE OPERATIONS 🔥');
 
