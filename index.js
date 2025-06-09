@@ -1,7 +1,6 @@
 import { eventSource, event_types } from '../../../../script.js';
-import { extension_settings, saveSettingsDebounced } from '../../../extensions.js';
-
-console.log('🔥 STChatModelTemp: FRESH CODE LOADED - NO FILE OPERATIONS 🔥');
+import { extension_settings } from '../../../extensions.js';
+import { saveSettingsDebounced } from '../../../../script.js';
 
 const MODULE_NAME = 'STChatModelTemp';
 const SAVE_DEBOUNCE_TIME = 1000;
