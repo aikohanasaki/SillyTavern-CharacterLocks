@@ -42,89 +42,21 @@ function getExtensionSettings() {
 }
 
 /**
- * Inject CSS styles into the document
+ * Inject minimal CSS styles (only what's not available in SillyTavern)
  */
 function injectStyles() {
     const css = `
-        #stchatmodeltemp-container {
-            margin: 10px 0;
-            border: 1px solid var(--SmartThemeBorderColor);
-            border-radius: 5px;
-            background-color: var(--SmartThemeBodyColor);
-        }
-
-        #stchatmodeltemp-container .inline-drawer-header {
-            background-color: var(--SmartThemeBlurTintColor);
-            padding: 10px;
-            cursor: pointer;
-            user-select: none;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-radius: 5px 5px 0 0;
-        }
-
-        #stchatmodeltemp-container .inline-drawer-header:hover {
-            background-color: var(--SmartThemeBlurTintColorLighter);
-        }
-
-        #stchatmodeltemp-container .inline-drawer-content {
-            padding: 15px;
-            display: none;
-        }
-
-        #stchatmodeltemp-container .inline-drawer-icon {
-            transition: transform 0.3s ease;
-        }
-
-        #stchatmodeltemp-container .inline-drawer-icon.up {
-            transform: rotate(180deg);
-        }
-
         #stcmt-character-info,
         #stcmt-chat-info {
-            font-family: monospace;
-            font-size: 12px;
-            color: var(--SmartThemeQuoteColor);
-            background-color: var(--SmartThemeQuoteBackgroundColor);
-            padding: 5px;
-            border-radius: 3px;
+            font-family: var(--monoFontFamily);
+            font-size: calc(var(--mainFontSize) * 0.85);
+            color: var(--SmartThemeEmColor);
+            background-color: var(--black30a);
+            padding: 8px;
+            border-radius: 5px;
             border-left: 3px solid var(--SmartThemeQuoteColor);
-        }
-
-        #stchatmodeltemp-container .checkbox_label {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin: 0;
-        }
-
-        #stchatmodeltemp-container .checkbox_label input[type="checkbox"] {
-            margin: 0;
-        }
-
-        #stchatmodeltemp-container .menu_button {
-            flex: 1;
-            padding: 6px 12px;
-            font-size: 12px;
-            min-height: auto;
-        }
-
-        #stchatmodeltemp-container .margin-bot-10px {
-            margin-bottom: 10px;
-        }
-
-        #stchatmodeltemp-container .margin-5px {
             margin: 5px 0;
-        }
-
-        #stchatmodeltemp-container .flex-container {
-            display: flex;
-            flex-wrap: wrap;
-        }
-
-        #stchatmodeltemp-container .flexGap5 {
-            gap: 5px;
+            word-break: break-all;
         }
 
         #stchatmodeltemp-container.extension-disabled {
@@ -132,7 +64,17 @@ function injectStyles() {
         }
 
         #stchatmodeltemp-container.extension-disabled .inline-drawer-content {
-            background-color: #333;
+            background-color: var(--black50a);
+        }
+
+        #stcmt-api-status {
+            font-size: calc(var(--mainFontSize) * 0.9);
+            padding: 5px 0;
+            text-align: center;
+        }
+
+        #stcmt-api-status-text {
+            font-weight: 600;
         }
     `;
 
@@ -218,12 +160,12 @@ function getApiSelectors() {
 }
 
 /**
- * Initialize the extension - NO FILE OPERATIONS!
+ * Initialize the extension
  */
 async function init() {
     console.log('STChatModelTemp: Initializing with SillyTavern settings system');
     
-    // Inject CSS styles
+    // Inject minimal CSS styles
     injectStyles();
 
     // Initialize extension settings using SillyTavern's system
@@ -243,7 +185,7 @@ async function init() {
 }
 
 /**
- * Create UI elements for the extension
+ * Create UI elements using SillyTavern's existing classes
  */
 function createUI() {
     const extensionSettings = getExtensionSettings();
@@ -255,53 +197,47 @@ function createUI() {
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
-                <div id="stcmt-api-status" class="margin-bot-10px">
-                    <small class="text-muted">
+                <div id="stcmt-api-status">
+                    <small class="text_muted">
                         API Status: <span id="stcmt-api-status-text">Checking...</span>
                     </small>
                 </div>
-                <div class="flex-container flexGap5 margin-bot-10px">
-                    <label class="checkbox_label" for="stcmt-enable-character">
-                        <input type="checkbox" id="stcmt-enable-character" ${extensionSettings.moduleSettings.enableCharacterMemory ? 'checked' : ''}>
-                        <span>Remember per character</span>
-                    </label>
-                </div>
-                <div class="flex-container flexGap5 margin-bot-10px">
-                    <label class="checkbox_label" for="stcmt-enable-chat">
-                        <input type="checkbox" id="stcmt-enable-chat" ${extensionSettings.moduleSettings.enableChatMemory ? 'checked' : ''}>
-                        <span>Remember per chat</span>
-                    </label>
-                </div>
-                <div class="flex-container flexGap5 margin-bot-10px">
-                    <label class="checkbox_label" for="stcmt-prefer-character">
-                        <input type="checkbox" id="stcmt-prefer-character" ${extensionSettings.moduleSettings.preferCharacterOverChat ? 'checked' : ''}>
-                        <span>Prefer character settings over chat</span>
-                    </label>
-                </div>
-                <div class="flex-container flexGap5 margin-bot-10px">
-                    <label class="checkbox_label" for="stcmt-auto-save">
-                        <input type="checkbox" id="stcmt-auto-save" ${extensionSettings.moduleSettings.autoSave ? 'checked' : ''}>
-                        <span>Auto-save settings</span>
-                    </label>
-                </div>
-                <div class="flex-container flexGap5 margin-bot-10px">
-                    <label class="checkbox_label" for="stcmt-notifications">
-                        <input type="checkbox" id="stcmt-notifications" ${extensionSettings.moduleSettings.showNotifications ? 'checked' : ''}>
-                        <span>Show notifications</span>
-                    </label>
-                </div>
-                <div class="margin-bot-10px">
-                    <strong>Current Character Settings:</strong>
-                    <div id="stcmt-character-info" class="margin-5px">No character selected</div>
-                </div>
-                <div class="margin-bot-10px">
-                    <strong>Current Chat Settings:</strong>
-                    <div id="stcmt-chat-info" class="margin-5px">No chat selected</div>
-                </div>
-                <div class="flex-container flexGap5">
-                    <button id="stcmt-save-now" class="menu_button">Save Current Settings</button>
-                    <button id="stcmt-clear-character" class="menu_button">Clear Character Settings</button>
-                    <button id="stcmt-clear-chat" class="menu_button">Clear Chat Settings</button>
+                
+                <label class="checkbox_label">
+                    <input type="checkbox" id="stcmt-enable-character" ${extensionSettings.moduleSettings.enableCharacterMemory ? 'checked' : ''}>
+                    <span>Remember per character</span>
+                </label>
+                
+                <label class="checkbox_label">
+                    <input type="checkbox" id="stcmt-enable-chat" ${extensionSettings.moduleSettings.enableChatMemory ? 'checked' : ''}>
+                    <span>Remember per chat</span>
+                </label>
+                
+                <label class="checkbox_label">
+                    <input type="checkbox" id="stcmt-prefer-character" ${extensionSettings.moduleSettings.preferCharacterOverChat ? 'checked' : ''}>
+                    <span>Prefer character settings over chat</span>
+                </label>
+                
+                <label class="checkbox_label">
+                    <input type="checkbox" id="stcmt-auto-save" ${extensionSettings.moduleSettings.autoSave ? 'checked' : ''}>
+                    <span>Auto-save settings</span>
+                </label>
+                
+                <label class="checkbox_label">
+                    <input type="checkbox" id="stcmt-notifications" ${extensionSettings.moduleSettings.showNotifications ? 'checked' : ''}>
+                    <span>Show notifications</span>
+                </label>
+                
+                <h5>Current Character Settings:</h5>
+                <div id="stcmt-character-info">No character selected</div>
+                
+                <h5>Current Chat Settings:</h5>
+                <div id="stcmt-chat-info">No chat selected</div>
+                
+                <div class="buttons_block" style="margin-top: 10px; justify-content: flex-start; gap: 5px; flex-wrap: wrap;">
+                    <button id="stcmt-save-now" class="menu_button">💾 Save Current</button>
+                    <button id="stcmt-clear-character" class="menu_button">🗑️ Clear Character</button>
+                    <button id="stcmt-clear-chat" class="menu_button">🗑️ Clear Chat</button>
                 </div>
             </div>
         </div>
@@ -309,19 +245,27 @@ function createUI() {
 
     $('#extensionsMenu').append(container);
 
+    // Set up drawer toggle functionality with proper icon rotation
     $('#stchatmodeltemp-container .inline-drawer-toggle').on('click', function() {
         const content = $(this).siblings('.inline-drawer-content');
         const icon = $(this).find('.inline-drawer-icon');
         
-        content.slideToggle();
-        icon.toggleClass('down up');
+        content.slideToggle(200, function() {
+            // Toggle icon classes after animation completes
+            if (content.is(':visible')) {
+                icon.removeClass('down').addClass('up');
+            } else {
+                icon.removeClass('up').addClass('down');
+            }
+        });
     });
 }
 
 /**
- * Set up event listeners
+ * Set up event listeners with debouncing
  */
 function setupEventListeners() {
+    // Settings change handlers
     $('#stcmt-enable-character').on('change', function() {
         const extensionSettings = getExtensionSettings();
         extensionSettings.moduleSettings.enableCharacterMemory = $(this).prop('checked');
@@ -352,29 +296,36 @@ function setupEventListeners() {
         saveSettingsDebounced();
     });
 
+    // Button handlers
     $('#stcmt-save-now').on('click', saveCurrentSettings);
     $('#stcmt-clear-character').on('click', clearCharacterSettings);
     $('#stcmt-clear-chat').on('click', clearChatSettings);
 
+    // SillyTavern event handlers
     eventSource.on(event_types.CHARACTER_SELECTED, onCharacterChanged);
     eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
 
+    // API change handlers (debounced)
     $(document).on('change', '#main_api, #chat_completion_source', function() {
         checkApiCompatibility();
         if (isExtensionEnabled) {
-            onCharacterChanged();
+            setTimeout(onCharacterChanged, 100); // Small delay to ensure API change is processed
         }
     });
 
-    $(document).on('change', [
+    // Model settings change handlers (debounced for performance)
+    let modelChangeTimeout;
+    $(document).on('change input', [
         '#model_openai_select', '#model_claude_select', '#model_windowai_select', 
         '#model_openrouter_select', '#model_ai21_select', '#model_scale_select', 
         '#model_google_select', '#model_mistralai_select', '#custom_model_id', 
         '#model_cohere_select', '#model_perplexity_select', '#model_groq_select', 
         '#model_01ai_select', '#model_nanogpt_select', '#model_deepseek_select', 
         '#model_blockentropy_select', '#temp_openai', '#temp_counter_openai'
-    ].join(', '), onModelSettingsChanged);
-    $(document).on('input', '#temp_openai', onModelSettingsChanged);
+    ].join(', '), function() {
+        clearTimeout(modelChangeTimeout);
+        modelChangeTimeout = setTimeout(onModelSettingsChanged, SAVE_DEBOUNCE_TIME);
+    });
 }
 
 /**
@@ -418,9 +369,7 @@ function onModelSettingsChanged() {
     const extensionSettings = getExtensionSettings();
     if (!isExtensionEnabled || !extensionSettings.moduleSettings.autoSave) return;
 
-    setTimeout(() => {
-        saveCurrentSettings();
-    }, SAVE_DEBOUNCE_TIME);
+    saveCurrentSettings();
 }
 
 /**
@@ -587,9 +536,9 @@ function updateUI() {
     const mainApi = $('#main_api').val();
     
     if (isExtensionEnabled) {
-        statusText.text(`Active (${completionSource})`).css('color', '#4CAF50');
+        statusText.text(`Active (${completionSource})`).css('color', 'var(--active)');
     } else {
-        statusText.text(`Requires Chat Completion API (current: ${mainApi})`).css('color', '#f44336');
+        statusText.text(`Requires Chat Completion API (current: ${mainApi})`).css('color', 'var(--warning)');
     }
 
     if (!isExtensionEnabled) {
@@ -599,11 +548,11 @@ function updateUI() {
     }
 
     const characterInfo = currentCharacterSettings 
-        ? `Model: ${currentCharacterSettings.model || 'N/A'}, Temp: ${currentCharacterSettings.temperature || 'N/A'}, Source: ${currentCharacterSettings.completionSource || 'N/A'} (saved ${new Date(currentCharacterSettings.savedAt).toLocaleString()})`
+        ? `Model: ${currentCharacterSettings.model || 'N/A'}\nTemp: ${currentCharacterSettings.temperature || 'N/A'}\nSource: ${currentCharacterSettings.completionSource || 'N/A'}\nSaved: ${new Date(currentCharacterSettings.savedAt).toLocaleString()}`
         : 'No saved settings';
     
     const chatInfo = currentChatSettings 
-        ? `Model: ${currentChatSettings.model || 'N/A'}, Temp: ${currentChatSettings.temperature || 'N/A'}, Source: ${currentChatSettings.completionSource || 'N/A'} (saved ${new Date(currentChatSettings.savedAt).toLocaleString()})`
+        ? `Model: ${currentChatSettings.model || 'N/A'}\nTemp: ${currentChatSettings.temperature || 'N/A'}\nSource: ${currentChatSettings.completionSource || 'N/A'}\nSaved: ${new Date(currentChatSettings.savedAt).toLocaleString()}`
         : 'No saved settings';
     
     $('#stcmt-character-info').text(characterInfo);
