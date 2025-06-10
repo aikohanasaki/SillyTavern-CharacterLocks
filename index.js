@@ -1,7 +1,6 @@
-import { eventSource, event_types, this_chid, characters } from '../../../../script.js';
+import { eventSource, event_types } from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../script.js';
-import { selected_group, groups } from '../../../group-chats.js';
 
 const MODULE_NAME = 'STChatModelTemp';
 const SAVE_DEBOUNCE_TIME = 1000;
@@ -31,6 +30,15 @@ let currentCharacterSettings = null;
 let currentChatSettings = null;
 let isExtensionEnabled = false;
 
+// Current context cache
+let currentContext = {
+    characterId: null,
+    chatId: null,
+    groupId: null,
+    characterName: null,
+    chatName: null
+};
+
 /**
  * Get extension settings from SillyTavern's settings system
  */
@@ -40,6 +48,345 @@ function getExtensionSettings() {
         console.log('STChatModelTemp: Created new settings with defaults');
     }
     return extension_settings.STChatModelTemp;
+}
+
+/**
+ * Get current context using DOM inspection and cached values
+ */
+function getCurrentContext() {
+    let characterId = null;
+    let chatId = null;
+    let groupId = null;
+    let characterName = null;
+    let chatName = null;
+    
+    try {
+        // Method 1: Try to get from DOM elements (most reliable)
+        const characterSelect = $('#rm_button_selected_ch');
+        if (characterSelect.length > 0) {
+            characterId = characterSelect.attr('chid');
+            characterName = characterSelect.text().trim();
+        }
+        
+        // Method 2: Try alternative character selectors
+        if (!characterId) {
+            const altCharSelect = $('.character_select.selected, .selected_character');
+            if (altCharSelect.length > 0) {
+                characterId = altCharSelect.data('chid') || altCharSelect.attr('chid');
+                characterName = altCharSelect.text().trim() || altCharSelect.attr('title');
+            }
+        }
+        
+        // Method 3: Get chat info from title or URL
+        const pageTitle = document.title;
+        if (pageTitle && pageTitle !== 'SillyTavern') {
+            chatName = pageTitle;
+        }
+        
+        // Method 4: Try to get chat ID from URL hash or other sources
+        const urlHash = window.location.hash;
+        if (urlHash.includes('chat=')) {
+            const chatMatch = urlHash.match(/chat=([^&]+)/);
+            if (chatMatch) {
+                chatId = chatMatch[1];
+            }
+        }
+        
+        // Method 5: Use cached values if available
+        if (!characterId && currentContext.characterId) {
+            characterId = currentContext.characterId;
+            characterName = currentContext.characterName;
+        }
+        if (!chatId && currentContext.chatId) {
+            chatId = currentContext.chatId;
+        }
+        
+        // Generate fallback IDs if needed
+        if (characterName && !characterId) {
+            characterId = characterName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        }
+        if (characterId && !chatId) {
+            chatId = `chat_${characterId}_${Date.now()}`;
+        }
+        
+    } catch (e) {
+        console.warn('STChatModelTemp: Error getting context:', e);
+    }
+    
+    const context = {
+        characterId,
+        chatId,
+        groupId,
+        characterName,
+        chatName
+    };
+    
+    // Update cache
+    currentContext = { ...context };
+    
+    console.log('STChatModelTemp: Context resolved:', context);
+    return context;
+}
+
+/**
+ * Enhanced event handlers that extract context from events
+ */
+function onCharacterChangedEnhanced(eventData) {
+    console.log('STChatModelTemp: Character changed event:', eventData);
+    
+    // Update context cache from event if available
+    if (eventData && typeof eventData === 'object') {
+        if (eventData.characterId || eventData.chid) {
+            currentContext.characterId = eventData.characterId || eventData.chid;
+        }
+        if (eventData.characterName || eventData.name) {
+            currentContext.characterName = eventData.characterName || eventData.name;
+        }
+    }
+    
+    // Call original handler
+    onCharacterChanged();
+}
+
+function onChatChangedEnhanced(eventData) {
+    console.log('STChatModelTemp: Chat changed event:', eventData);
+    
+    // Extract chat info from event or current state
+    if (eventData) {
+        if (typeof eventData === 'string') {
+            // Event data is chat name
+            currentContext.chatName = eventData;
+            currentContext.chatId = eventData.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        } else if (typeof eventData === 'object') {
+            if (eventData.chatId) currentContext.chatId = eventData.chatId;
+            if (eventData.chatName) currentContext.chatName = eventData.chatName;
+        }
+    }
+    
+    // Also update context from DOM
+    getCurrentContext();
+    
+    // Call original handler
+    onChatChanged();
+}
+
+/**
+ * Check API compatibility
+ */
+function checkApiCompatibility() {
+    const mainApi = $('#main_api').val();
+    const completionSource = $('#chat_completion_source').val();
+    
+    const isCompatible = mainApi === 'openai' && SUPPORTED_COMPLETION_SOURCES.includes(completionSource);
+    
+    if (isCompatible !== isExtensionEnabled) {
+        isExtensionEnabled = isCompatible;
+        updateExtensionState();
+        
+        const extensionSettings = getExtensionSettings();
+        if (extensionSettings.moduleSettings.showNotifications) {
+            if (isCompatible) {
+                toastr.info('STChatModelTemp extension enabled for Chat Completion API', 'STChatModelTemp');
+            } else {
+                toastr.warning('STChatModelTemp requires Chat Completion API', 'STChatModelTemp');
+            }
+        }
+    }
+    
+    return isCompatible;
+}
+
+/**
+ * Update extension UI state based on compatibility
+ */
+function updateExtensionState() {
+    const popup = $('#stcmt-popup');
+    
+    if (isExtensionEnabled) {
+        popup.removeClass('extension-disabled');
+        popup.find('input, button, select').prop('disabled', false);
+        updateUI();
+    } else {
+        popup.addClass('extension-disabled');
+        popup.find('input, button, select').prop('disabled', true);
+        
+        $('#stcmt-character-info').text('STChatModelTemp requires Chat Completion API');
+        $('#stcmt-chat-info').text('STChatModelTemp requires Chat Completion API');
+    }
+}
+
+// ... (rest of your existing functions remain the same: injectStyles, getApiSelectors, showPopup, hidePopup, createUI) ...
+
+/**
+ * Set up event listeners with enhanced event handling
+ */
+function setupEventListeners() {
+    // Menu item click handler
+    $(document).on('click', '#stcmt-menu-item', function() {
+        showPopup();
+    });
+    
+    // Close popup handlers
+    $(document).on('click', '#stcmt-close-popup', hidePopup);
+    $(document).on('click', '#shadow_popup', hidePopup);
+    
+    // Prevent popup from closing when clicking inside it
+    $(document).on('click', '#stcmt-popup', function(e) {
+        e.stopPropagation();
+    });
+    
+    // ESC key to close popup
+    $(document).on('keydown', function(e) {
+        if (e.key === 'Escape' && $('#stcmt-popup').is(':visible')) {
+            hidePopup();
+        }
+    });
+
+    // Settings change handlers (unchanged)
+    $(document).on('change', '#stcmt-enable-character', function() {
+        const extensionSettings = getExtensionSettings();
+        extensionSettings.moduleSettings.enableCharacterMemory = $(this).prop('checked');
+        saveSettingsDebounced();
+    });
+
+    $(document).on('change', '#stcmt-enable-chat', function() {
+        const extensionSettings = getExtensionSettings();
+        extensionSettings.moduleSettings.enableChatMemory = $(this).prop('checked');
+        saveSettingsDebounced();
+    });
+
+    $(document).on('change', '#stcmt-prefer-character', function() {
+        const extensionSettings = getExtensionSettings();
+        extensionSettings.moduleSettings.preferCharacterOverChat = $(this).prop('checked');
+        saveSettingsDebounced();
+    });
+
+    $(document).on('change', '#stcmt-auto-save', function() {
+        const extensionSettings = getExtensionSettings();
+        extensionSettings.moduleSettings.autoSave = $(this).prop('checked');
+        saveSettingsDebounced();
+    });
+
+    $(document).on('change', '#stcmt-notifications', function() {
+        const extensionSettings = getExtensionSettings();
+        extensionSettings.moduleSettings.showNotifications = $(this).prop('checked');
+        saveSettingsDebounced();
+    });
+
+    // Button handlers
+    $(document).on('click', '#stcmt-save-now', saveCurrentSettings);
+    $(document).on('click', '#stcmt-clear-character', clearCharacterSettings);
+    $(document).on('click', '#stcmt-clear-chat', clearChatSettings);
+
+    // ENHANCED SillyTavern event handlers
+    try {
+        eventSource.on(event_types.CHARACTER_SELECTED, onCharacterChangedEnhanced);
+        eventSource.on(event_types.CHAT_CHANGED, onChatChangedEnhanced);
+        
+        // Also listen for other relevant events
+        eventSource.on(event_types.CHAT_LOADED, () => {
+            console.log('STChatModelTemp: Chat loaded event');
+            setTimeout(() => {
+                getCurrentContext();
+                updateUI();
+            }, 500);
+        });
+        
+        eventSource.on(event_types.MESSAGE_SENT, () => {
+            // Update context on message sent (in case auto-save is enabled)
+            if (getExtensionSettings().moduleSettings.autoSave) {
+                onModelSettingsChanged();
+            }
+        });
+        
+        console.log('STChatModelTemp: Event listeners registered successfully');
+    } catch (e) {
+        console.warn('STChatModelTemp: Could not bind to SillyTavern events:', e);
+    }
+
+    // API change handlers (debounced)
+    $(document).on('change', '#main_api, #chat_completion_source', function() {
+        checkApiCompatibility();
+        if (isExtensionEnabled) {
+            setTimeout(() => {
+                getCurrentContext();
+                onCharacterChanged();
+            }, 100);
+        }
+    });
+
+    // Model settings change handlers (debounced for performance)
+    let modelChangeTimeout;
+    $(document).on('change input', [
+        '#model_openai_select', '#model_claude_select', '#model_windowai_select', 
+        '#model_openrouter_select', '#model_ai21_select', '#model_scale_select', 
+        '#model_google_select', '#model_mistralai_select', '#custom_model_id', 
+        '#model_cohere_select', '#model_perplexity_select', '#model_groq_select', 
+        '#model_01ai_select', '#model_nanogpt_select', '#model_deepseek_select', 
+        '#model_blockentropy_select', '#temp_openai', '#temp_counter_openai'
+    ].join(', '), function() {
+        clearTimeout(modelChangeTimeout);
+        modelChangeTimeout = setTimeout(onModelSettingsChanged, SAVE_DEBOUNCE_TIME);
+    });
+
+    // Periodic context refresh (fallback)
+    setInterval(() => {
+        if (isExtensionEnabled) {
+            const newContext = getCurrentContext();
+            const contextChanged = JSON.stringify(newContext) !== JSON.stringify(currentContext);
+            if (contextChanged) {
+                console.log('STChatModelTemp: Context changed via polling');
+                onCharacterChanged();
+            }
+        }
+    }, 2000); // Check every 2 seconds
+}
+
+// ... (rest of your existing functions: onCharacterChanged, onChatChanged, etc.) ...
+
+/**
+ * Initialize the extension with enhanced context detection
+ */
+async function init() {
+    console.log('STChatModelTemp: Initializing with enhanced event handling');
+    
+    // Wait for SillyTavern to be ready
+    let attempts = 0;
+    const maxAttempts = 20;
+    
+    while (attempts < maxAttempts) {
+        if ($('#main_api').length > 0 && eventSource) {
+            console.log('STChatModelTemp: SillyTavern UI detected');
+            break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+        attempts++;
+    }
+    
+    // Inject minimal CSS styles
+    injectStyles();
+
+    // Initialize extension settings using SillyTavern's system
+    const settings = getExtensionSettings();
+    console.log('STChatModelTemp: Settings ready:', Object.keys(settings));
+
+    // Create UI elements
+    createUI();
+
+    // Set up event listeners
+    setupEventListeners();
+
+    // Check initial API compatibility
+    checkApiCompatibility();
+
+    // Initial context detection
+    setTimeout(() => {
+        getCurrentContext();
+        onCharacterChanged();
+        console.log('STChatModelTemp: Initial context loaded');
+    }, 1000);
+
+    console.log('STChatModelTemp: Extension loaded successfully');
 }
 
 /**
@@ -88,82 +435,6 @@ function injectStyles() {
     `;
 
     $('<style>').prop('type', 'text/css').html(css).appendTo('head');
-}
-
-/**
- * Check API compatibility
- */
-function checkApiCompatibility() {
-    const mainApi = $('#main_api').val();
-    const completionSource = $('#chat_completion_source').val();
-    
-    const isCompatible = mainApi === 'openai' && SUPPORTED_COMPLETION_SOURCES.includes(completionSource);
-    
-    if (isCompatible !== isExtensionEnabled) {
-        isExtensionEnabled = isCompatible;
-        updateExtensionState();
-        
-        const extensionSettings = getExtensionSettings();
-        if (extensionSettings.moduleSettings.showNotifications) {
-            if (isCompatible) {
-                toastr.info('STChatModelTemp extension enabled for Chat Completion API', 'STChatModelTemp');
-            } else {
-                toastr.warning('STChatModelTemp requires Chat Completion API', 'STChatModelTemp');
-            }
-        }
-    }
-    
-    return isCompatible;
-}
-
-/**
- * Update extension UI state based on compatibility
- */
-function updateExtensionState() {
-    const popup = $('#stcmt-popup');
-    
-    if (isExtensionEnabled) {
-        popup.removeClass('extension-disabled');
-        popup.find('input, button, select').prop('disabled', false);
-        updateUI();
-    } else {
-        popup.addClass('extension-disabled');
-        popup.find('input, button, select').prop('disabled', true);
-        
-        $('#stcmt-character-info').text('STChatModelTemp requires Chat Completion API');
-        $('#stcmt-chat-info').text('STChatModelTemp requires Chat Completion API');
-    }
-}
-
-/**
- * Get current context information using SillyTavern globals
- */
-function getCurrentContext() {
-    let characterId = null;
-    let chatId = null;
-    let groupId = null;
-    
-    // Get character ID (this_chid is exported from script.js)
-    if (this_chid !== undefined && this_chid !== null) {
-        characterId = this_chid;
-    }
-    
-    // Get chat ID using the same logic as the exported getCurrentChatId function
-    if (selected_group) {
-        // For group chats
-        groupId = selected_group;
-        const group = groups.find(x => x.id == selected_group);
-        chatId = group?.chat_id;
-    } else if (this_chid !== undefined) {
-        // For character chats
-        chatId = characters[this_chid]?.chat;
-    }
-    
-    return {
-        characterId,
-        chatId,
-        groupId
-    };
 }
 
 /**
@@ -272,31 +543,6 @@ function hidePopup() {
 }
 
 /**
- * Initialize the extension
- */
-async function init() {
-    console.log('STChatModelTemp: Initializing with SillyTavern settings system');
-    
-    // Inject minimal CSS styles
-    injectStyles();
-
-    // Initialize extension settings using SillyTavern's system
-    const settings = getExtensionSettings();
-    console.log('STChatModelTemp: Settings ready:', Object.keys(settings));
-
-    // Create UI elements
-    createUI();
-
-    // Set up event listeners
-    setupEventListeners();
-
-    // Check initial API compatibility
-    checkApiCompatibility();
-
-    console.log('STChatModelTemp: Extension loaded successfully');
-}
-
-/**
  * Create UI elements using SillyTavern's popup system
  */
 function createUI() {
@@ -381,94 +627,6 @@ function createUI() {
 
     // Add popup to body
     $('body').append(popup);
-}
-
-/**
- * Set up event listeners with debouncing
- */
-function setupEventListeners() {
-    // Menu item click handler
-    $(document).on('click', '#stcmt-menu-item', function() {
-        showPopup();
-    });
-    
-    // Close popup handlers
-    $(document).on('click', '#stcmt-close-popup', hidePopup);
-    $(document).on('click', '#shadow_popup', hidePopup);
-    
-    // Prevent popup from closing when clicking inside it
-    $(document).on('click', '#stcmt-popup', function(e) {
-        e.stopPropagation();
-    });
-    
-    // ESC key to close popup
-    $(document).on('keydown', function(e) {
-        if (e.key === 'Escape' && $('#stcmt-popup').is(':visible')) {
-            hidePopup();
-        }
-    });
-
-    // Settings change handlers
-    $(document).on('change', '#stcmt-enable-character', function() {
-        const extensionSettings = getExtensionSettings();
-        extensionSettings.moduleSettings.enableCharacterMemory = $(this).prop('checked');
-        saveSettingsDebounced();
-    });
-
-    $(document).on('change', '#stcmt-enable-chat', function() {
-        const extensionSettings = getExtensionSettings();
-        extensionSettings.moduleSettings.enableChatMemory = $(this).prop('checked');
-        saveSettingsDebounced();
-    });
-
-    $(document).on('change', '#stcmt-prefer-character', function() {
-        const extensionSettings = getExtensionSettings();
-        extensionSettings.moduleSettings.preferCharacterOverChat = $(this).prop('checked');
-        saveSettingsDebounced();
-    });
-
-    $(document).on('change', '#stcmt-auto-save', function() {
-        const extensionSettings = getExtensionSettings();
-        extensionSettings.moduleSettings.autoSave = $(this).prop('checked');
-        saveSettingsDebounced();
-    });
-
-    $(document).on('change', '#stcmt-notifications', function() {
-        const extensionSettings = getExtensionSettings();
-        extensionSettings.moduleSettings.showNotifications = $(this).prop('checked');
-        saveSettingsDebounced();
-    });
-
-    // Button handlers
-    $(document).on('click', '#stcmt-save-now', saveCurrentSettings);
-    $(document).on('click', '#stcmt-clear-character', clearCharacterSettings);
-    $(document).on('click', '#stcmt-clear-chat', clearChatSettings);
-
-    // SillyTavern event handlers
-    eventSource.on(event_types.CHARACTER_SELECTED, onCharacterChanged);
-    eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
-
-    // API change handlers (debounced)
-    $(document).on('change', '#main_api, #chat_completion_source', function() {
-        checkApiCompatibility();
-        if (isExtensionEnabled) {
-            setTimeout(onCharacterChanged, 100);
-        }
-    });
-
-    // Model settings change handlers (debounced for performance)
-    let modelChangeTimeout;
-    $(document).on('change input', [
-        '#model_openai_select', '#model_claude_select', '#model_windowai_select', 
-        '#model_openrouter_select', '#model_ai21_select', '#model_scale_select', 
-        '#model_google_select', '#model_mistralai_select', '#custom_model_id', 
-        '#model_cohere_select', '#model_perplexity_select', '#model_groq_select', 
-        '#model_01ai_select', '#model_nanogpt_select', '#model_deepseek_select', 
-        '#model_blockentropy_select', '#temp_openai', '#temp_counter_openai'
-    ].join(', '), function() {
-        clearTimeout(modelChangeTimeout);
-        modelChangeTimeout = setTimeout(onModelSettingsChanged, SAVE_DEBOUNCE_TIME);
-    });
 }
 
 /**
@@ -702,12 +860,14 @@ function updateUI() {
     $('#stcmt-chat-info').text(chatInfo);
 }
 
-console.log('STChatModelTemp Context Test:', getCurrentContextRobust());
-
 // Initialize when the extension loads
 $(document).ready(() => {
-    eventSource.on(event_types.APP_READY, init);
-    if (window.SillyTavern?.isReady) {
-        init();
+    if (eventSource && event_types.APP_READY) {
+        eventSource.on(event_types.APP_READY, init);
     }
+    
+    // Fallback initialization
+    setTimeout(init, 1000);
+    
+    console.log('STChatModelTemp: Ready to initialize');
 });
