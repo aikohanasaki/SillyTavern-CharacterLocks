@@ -476,40 +476,54 @@ function handlePopupClose(popup) {
     }
 }
 
-/**
- * Set up event listeners
- */
 function setupEventListeners() {
     // Menu item click handler
     $(document).on('click', SELECTORS.menuItem, function() {
         showPopup();
     });
 
-    // Enhanced SillyTavern event handlers
-    try {
-        eventSource.on(event_types.CHARACTER_SELECTED, onCharacterChanged);
-        eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
-        
-        eventSource.on(event_types.CHAT_LOADED, () => {
-            console.log('STChatModelTemp: Chat loaded event');
-            setTimeout(() => {
-                migrateChatSettings();
-                updateCachedSettings();
-            }, 500);
-        });
-        
-        // Only autosave on generation_started event
-        eventSource.on(event_types.GENERATION_STARTED, () => {
-            console.log('STChatModelTemp: Generation started event detected');
-            if (getExtensionSettings().moduleSettings.autoSave) {
-                debouncedModelSettingsChanged();
+    // Enhanced SillyTavern event handlers with retry mechanism
+    function registerSillyTavernEvents() {
+        try {
+            if (!eventSource || !event_types) {
+                console.warn('STChatModelTemp: eventSource or event_types not available, retrying...');
+                setTimeout(registerSillyTavernEvents, 1000);
+                return;
             }
-        });
-        
-        console.log('STChatModelTemp: Event listeners registered successfully');
-    } catch (e) {
-        console.warn('STChatModelTemp: Could not bind to SillyTavern events:', e);
+
+            eventSource.on(event_types.CHARACTER_SELECTED, onCharacterChanged);
+            eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
+            
+            eventSource.on(event_types.CHAT_LOADED, () => {
+                console.log('STChatModelTemp: Chat loaded event');
+                setTimeout(() => {
+                    migrateChatSettings();
+                    updateCachedSettings();
+                }, 500);
+            });
+            
+            // Only autosave on generation_started event
+            eventSource.on(event_types.GENERATION_STARTED, () => {
+                console.log('STChatModelTemp: Generation started event detected');
+                const extensionSettings = getExtensionSettings();
+                console.log('STChatModelTemp: Auto-save enabled:', extensionSettings.moduleSettings.autoSave);
+                console.log('STChatModelTemp: Extension enabled:', isExtensionEnabled);
+                
+                if (getExtensionSettings().moduleSettings.autoSave && isExtensionEnabled) {
+                    console.log('STChatModelTemp: Triggering auto-save...');
+                    debouncedModelSettingsChanged();
+                }
+            });
+            
+            console.log('STChatModelTemp: Event listeners registered successfully');
+        } catch (e) {
+            console.warn('STChatModelTemp: Could not bind to SillyTavern events:', e);
+            setTimeout(registerSillyTavernEvents, 2000);
+        }
     }
+
+    // Start registration process
+    registerSillyTavernEvents();
 
     // API change handlers
     $(document).on('change', `${SELECTORS.mainApi}, ${SELECTORS.completionSource}`, function() {
@@ -524,7 +538,7 @@ function setupEventListeners() {
     // Model settings change handlers using lodash.debounce
     const modelSelectors = lodash.values(lodash.pick(SELECTORS, [
         'modelOpenai', 'modelClaude', 'modelWindowai', 'modelOpenrouter', 'modelAi21', 
-        'modelScale', 'modelGoogle', 'modelMistralai', 'customModelId', 'modelCustomSelect', // Added modelCustomSelect here
+        'modelScale', 'modelGoogle', 'modelMistralai', 'customModelId', 'modelCustomSelect',
         'modelCohere', 'modelPerplexity', 'modelGroq', 'model01ai', 'modelNanogpt', 'modelDeepseek',
         'modelBlockentropy', 'tempOpenai', 'tempCounterOpenai'
     ])).join(', ');
