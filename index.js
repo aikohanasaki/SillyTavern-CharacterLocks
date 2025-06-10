@@ -47,7 +47,8 @@ const defaultSettings = {
         enableCharacterMemory: true,
         enableChatMemory: true,
         preferCharacterOverChat: true,
-        autoSave: true,
+        autoSaveCharacter: true, 
+        autoSaveChat: true, 
         showNotifications: false
     },
     characterSettings: {},
@@ -394,9 +395,15 @@ function getPopupContent() {
                 requiresApi: true
             },
             {
-                id: 'stcmt-auto-save',
-                label: 'Auto-save settings',
-                checked: settings.moduleSettings.autoSave,
+                id: 'stcmt-auto-save-character',
+                label: 'Auto-save character settings',
+                checked: settings.moduleSettings.autoSaveCharacter,
+                requiresApi: true
+            },
+            {
+                id: 'stcmt-auto-save-chat',
+                label: 'Auto-save chat settings',
+                checked: settings.moduleSettings.autoSaveChat,
                 requiresApi: true
             },
             {
@@ -470,7 +477,6 @@ function createUI() {
 
 /**
  * Show the popup using ST's popup system with proper button handling
- * Popup will NOT close prematurely and only closes when user clicks close
  */
 async function showPopup() {
     const content = getPopupContent();
@@ -479,33 +485,57 @@ async function showPopup() {
     
     const customButtons = [
         {
-            text: '💾 Update Settings',
-            result: null, // null means don't close popup
+            text: '💾 Update Both',
+            result: null,
             classes: ['menu_button'],
             action: async () => {
-                await saveCurrentSettings();
+                await saveCurrentSettings(true, true);
                 refreshPopupContent();
-                // Don't return anything to prevent popup from closing
             }
         },
         {
-            text: '🗑️ Clear Character Settings',
-            result: null, // null means don't close popup
+            text: '👤 Update Character',
+            result: null,
+            classes: ['menu_button'],
+            action: async () => {
+                await saveCurrentSettings(true, false);
+                refreshPopupContent();
+            }
+        },
+        {
+            text: '💬 Update Chat',
+            result: null,
+            classes: ['menu_button'],
+            action: async () => {
+                await saveCurrentSettings(false, true);
+                refreshPopupContent();
+            }
+        },
+        {
+            text: '🗑️ Clear Character',
+            result: null,
             classes: ['menu_button'],
             action: async () => {
                 await clearCharacterSettings();
                 refreshPopupContent();
-                // Don't return anything to prevent popup from closing
             }
         },
         {
-            text: '🗑️ Clear Chat Settings',
-            result: null, // null means don't close popup
+            text: '🗑️ Clear Chat',
+            result: null,
             classes: ['menu_button'],
             action: async () => {
                 await clearChatSettings();
                 refreshPopupContent();
-                // Don't return anything to prevent popup from closing
+            }
+        },
+        {
+            text: '🗑️ Clear All',
+            result: null,
+            classes: ['menu_button'],
+            action: async () => {
+                await clearAllSettings();
+                refreshPopupContent();
             }
         }
     ];
@@ -514,7 +544,7 @@ async function showPopup() {
         wide: true,
         customButtons: customButtons,
         cancelButton: 'Close',
-        okButton: false, // No OK button to prevent accidental closing
+        okButton: false,
         onClose: handlePopupClose
     };
 
@@ -540,7 +570,8 @@ function handlePopupClose(popup) {
             'stcmt-enable-character': 'enableCharacterMemory',
             'stcmt-enable-chat': 'enableChatMemory',
             'stcmt-prefer-character': 'preferCharacterOverChat',
-            'stcmt-auto-save': 'autoSave',
+            'stcmt-auto-save-character': 'autoSaveCharacter',
+            'stcmt-auto-save-chat': 'autoSaveChat',
             'stcmt-show-notifications': 'showNotifications'
         };
         
@@ -596,42 +627,26 @@ function setupEventListeners() {
                 }, 500);
             });
             
-            // Auto-save only on specific generation events as required
-            const extensionSettings = getExtensionSettings();
+            // Auto-save events - check if either autosave is enabled
+            const setupAutoSaveEvent = (eventType, eventName) => {
+                if (eventType) {
+                    eventSource.on(eventType, () => {
+                        console.log(`STChatModelTemp: ${eventName} - checking auto-save settings`);
+                        const extensionSettings = getExtensionSettings();
+                        const shouldAutoSave = extensionSettings.moduleSettings.autoSaveCharacter || 
+                                             extensionSettings.moduleSettings.autoSaveChat;
+                        
+                        if (shouldAutoSave && isExtensionEnabled) {
+                            debouncedModelSettingsChanged();
+                        }
+                    });
+                }
+            };
             
-            if (extensionSettings.moduleSettings.autoSave) {
-                console.log('STChatModelTemp: Setting up auto-save for generation events only');
-                
-                // Primary auto-save event - when generation actually starts
-                if (event_types.GENERATION_STARTED) {
-                    eventSource.on(event_types.GENERATION_STARTED, () => {
-                        console.log('STChatModelTemp: GENERATION_STARTED - auto-save triggered');
-                        if (getExtensionSettings().moduleSettings.autoSave && isExtensionEnabled) {
-                            debouncedModelSettingsChanged();
-                        }
-                    });
-                }
-                
-                // Secondary auto-save event - when prompt is ready for completion
-                if (event_types.CHAT_COMPLETION_PROMPT_READY) {
-                    eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, () => {
-                        console.log('STChatModelTemp: CHAT_COMPLETION_PROMPT_READY - auto-save triggered');
-                        if (getExtensionSettings().moduleSettings.autoSave && isExtensionEnabled) {
-                            debouncedModelSettingsChanged();
-                        }
-                    });
-                }
-                
-                // Tertiary auto-save event - when message is received
-                if (event_types.MESSAGE_RECEIVED) {
-                    eventSource.on(event_types.MESSAGE_RECEIVED, () => {
-                        console.log('STChatModelTemp: MESSAGE_RECEIVED - auto-save triggered');
-                        if (getExtensionSettings().moduleSettings.autoSave && isExtensionEnabled) {
-                            debouncedModelSettingsChanged();
-                        }
-                    });
-                }
-            }
+            // Set up auto-save for various generation events
+            setupAutoSaveEvent(event_types.GENERATION_STARTED, 'GENERATION_STARTED');
+            setupAutoSaveEvent(event_types.CHAT_COMPLETION_PROMPT_READY, 'CHAT_COMPLETION_PROMPT_READY');
+            setupAutoSaveEvent(event_types.MESSAGE_RECEIVED, 'MESSAGE_RECEIVED');
             
             console.log('STChatModelTemp: Event listeners registered successfully');
         } catch (e) {
@@ -732,13 +747,14 @@ function onChatChanged() {
 }
 
 /**
- * Enhanced model settings change handler with better logging
+ * Handle model settings change
  */
 function onModelSettingsChanged() {
     console.log('STChatModelTemp: onModelSettingsChanged() called');
     
     const extensionSettings = getExtensionSettings();
-    console.log('STChatModelTemp: Auto-save enabled:', extensionSettings.moduleSettings.autoSave);
+    console.log('STChatModelTemp: Character auto-save enabled:', extensionSettings.moduleSettings.autoSaveCharacter);
+    console.log('STChatModelTemp: Chat auto-save enabled:', extensionSettings.moduleSettings.autoSaveChat);
     console.log('STChatModelTemp: Extension enabled:', isExtensionEnabled);
     
     if (!isExtensionEnabled) {
@@ -746,13 +762,19 @@ function onModelSettingsChanged() {
         return;
     }
     
-    if (!extensionSettings.moduleSettings.autoSave) {
-        console.log('STChatModelTemp: Skipping save - auto-save disabled');
+    // Check if either autosave is enabled
+    const shouldAutoSaveCharacter = extensionSettings.moduleSettings.autoSaveCharacter;
+    const shouldAutoSaveChat = extensionSettings.moduleSettings.autoSaveChat;
+    
+    if (!shouldAutoSaveCharacter && !shouldAutoSaveChat) {
+        console.log('STChatModelTemp: Skipping save - both auto-saves disabled');
         return;
     }
 
     console.log('STChatModelTemp: Proceeding with auto-save...');
-    saveCurrentSettings();
+    
+    // Save only what's enabled for autosave
+    saveCurrentSettings(shouldAutoSaveCharacter, shouldAutoSaveChat);
 }
 
 /**
@@ -900,7 +922,7 @@ function applySettings() {
  * Save current model and temperature settings - using chat_metadata for character name
  * Settings must save and display properly in the popup
  */
-async function saveCurrentSettings() {
+async function saveCurrentSettings(saveCharacter = true, saveChat = true) {
     if (!isExtensionEnabled) {
         toastr.warning('Cannot save settings - STChatModelTemp requires Chat Completion API', 'STChatModelTemp');
         return;
@@ -929,45 +951,89 @@ async function saveCurrentSettings() {
         savedAt: moment().toISOString()
     };
 
-    // Save character settings using chat_metadata character name
+    let savedCount = 0;
+    const savedTypes = [];
+
+    // Save character settings if requested and enabled
     const characterName = getCharacterNameForSettings();
-    if (extensionSettings.moduleSettings.enableCharacterMemory && characterName) {
+    if (saveCharacter && extensionSettings.moduleSettings.enableCharacterMemory && characterName) {
         const success = safeSetCharacterSettings(characterName, settingsData);
         if (success) {
             currentCharacterSettings = lodash.cloneDeep(settingsData);
-            
+            savedCount++;
+            savedTypes.push('character');
             console.log(`STChatModelTemp: Saved character settings for "${characterName}":`, settingsData);
-            
-            if (extensionSettings.moduleSettings.showNotifications) {
-                toastr.success(`Character settings saved for ${characterName} (${apiInfo.completionSource})`, 'STChatModelTemp');
-            }
-        } else {
-            console.error(`STChatModelTemp: Failed to save character settings for "${characterName}"`);
-            if (extensionSettings.moduleSettings.showNotifications) {
-                toastr.error(`Failed to save character settings for ${characterName}`, 'STChatModelTemp');
-            }
         }
     }
 
-    // Save chat settings to chat metadata
-    if (extensionSettings.moduleSettings.enableChatMemory && context.chatId) {
+    // Save chat settings if requested and enabled
+    if (saveChat && extensionSettings.moduleSettings.enableChatMemory && context.chatId) {
         if (!chat_metadata) {
             window.chat_metadata = {};
         }
         
         chat_metadata.STChatModelTemp = settingsData;
         currentChatSettings = lodash.cloneDeep(settingsData);
+        savedCount++;
+        savedTypes.push('chat');
         
         console.log('STChatModelTemp: Saved chat settings:', settingsData);
-        
         saveMetadataDebounced();
+    }
+
+    if (savedCount > 0) {
+        saveSettingsDebounced();
         
         if (extensionSettings.moduleSettings.showNotifications) {
-            toastr.success(`Chat settings saved for ${apiInfo.completionSource}`, 'STChatModelTemp');
+            const typeText = savedTypes.join(' & ');
+            toastr.success(`${typeText} settings saved for ${apiInfo.completionSource}`, 'STChatModelTemp');
+        }
+    } else {
+        if (extensionSettings.moduleSettings.showNotifications) {
+            toastr.warning('No settings were saved (features may be disabled)', 'STChatModelTemp');
+        }
+    }
+}
+
+/**
+ * Clear all settings function
+ */
+async function clearAllSettings() {
+    const extensionSettings = getExtensionSettings();
+    let clearedCount = 0;
+    const clearedTypes = [];
+
+    // Clear character settings
+    const characterName = getCharacterNameForSettings();
+    if (characterName) {
+        const success = safeDeleteCharacterSettings(characterName);
+        if (success) {
+            currentCharacterSettings = null;
+            clearedCount++;
+            clearedTypes.push('character');
         }
     }
 
-    saveSettingsDebounced();
+    // Clear chat settings
+    const context = getCurrentExtensionContext();
+    if (context.chatId && chat_metadata && chat_metadata.STChatModelTemp) {
+        delete chat_metadata.STChatModelTemp;
+        currentChatSettings = null;
+        clearedCount++;
+        clearedTypes.push('chat');
+        saveMetadataDebounced();
+    }
+
+    if (clearedCount > 0) {
+        saveSettingsDebounced();
+        
+        if (extensionSettings.moduleSettings.showNotifications) {
+            const typeText = clearedTypes.join(' & ');
+            toastr.info(`${typeText} settings cleared`, 'STChatModelTemp');
+        }
+    }
+
+    console.log(`STChatModelTemp: Cleared ${clearedCount} setting types: ${clearedTypes.join(', ')}`);
 }
 
 /**
@@ -1010,19 +1076,22 @@ async function clearChatSettings() {
 }
 
 /**
- * Migrates old data structures to new format using direct object access
+ * Migrates old data structures to new format
  */
 function migrateOldData() {
     const extensionSettings = getExtensionSettings();
     
-    if (extensionSettings.migrationVersion >= 2) {
+    if (extensionSettings.migrationVersion >= 3) {  // Incremented version
         console.log('STChatModelTemp: Migration already completed');
         return;
     }
     
     console.log('STChatModelTemp: Starting data migration...');
     
-    // Migrate character settings - convert any escaped keys back to original names
+    // First run the autosave migration
+    migrateAutoSaveSettings();
+    
+    // Existing character settings migration code...
     if (extensionSettings.characterSettings && Object.keys(extensionSettings.characterSettings).length > 0) {
         const oldCharacterSettings = { ...extensionSettings.characterSettings };
         const newCharacterSettings = {};
@@ -1035,17 +1104,16 @@ function migrateOldData() {
             if (characterKey.includes('\\')) {
                 try {
                     characterName = characterKey
-                        .replace(/\\\\/g, '\\')  // Unescape backslashes
-                        .replace(/\\\./g, '.')   // Unescape dots
-                        .replace(/\\\]/g, ']')   // Unescape closing brackets
-                        .replace(/\\\[/g, '[');  // Unescape opening brackets
+                        .replace(/\\\\/g, '\\')
+                        .replace(/\\\./g, '.')
+                        .replace(/\\\]/g, ']')
+                        .replace(/\\\[/g, '[');
                     console.log(`STChatModelTemp: Unescaped character key "${characterKey}" to "${characterName}"`);
                 } catch (e) {
                     console.warn(`STChatModelTemp: Could not unescape key "${characterKey}", using as-is`);
                 }
             }
             
-            // Store with the final character name (no escaping needed)
             newCharacterSettings[characterName] = settings;
             migratedCount++;
             console.log(`STChatModelTemp: Migrated settings for "${characterName}"`);
@@ -1061,10 +1129,33 @@ function migrateOldData() {
         delete extensionSettings.chatSettings;
     }
     
-    extensionSettings.migrationVersion = 2;
+    extensionSettings.migrationVersion = 3;  // Incremented version
     saveSettingsDebounced();
     
     console.log('STChatModelTemp: Data migration completed');
+}
+
+function migrateAutoSaveSettings() {
+    const extensionSettings = getExtensionSettings();
+    
+    // Check if we need to migrate the old autoSave setting
+    if (extensionSettings.moduleSettings.hasOwnProperty('autoSave')) {
+        const oldAutoSave = extensionSettings.moduleSettings.autoSave;
+        
+        // Set both new settings to the old value if they don't exist
+        if (!extensionSettings.moduleSettings.hasOwnProperty('autoSaveCharacter')) {
+            extensionSettings.moduleSettings.autoSaveCharacter = oldAutoSave;
+        }
+        if (!extensionSettings.moduleSettings.hasOwnProperty('autoSaveChat')) {
+            extensionSettings.moduleSettings.autoSaveChat = oldAutoSave;
+        }
+        
+        // Remove the old setting
+        delete extensionSettings.moduleSettings.autoSave;
+        
+        console.log('STChatModelTemp: Migrated autoSave setting to separate character/chat autosave');
+        saveSettingsDebounced();
+    }
 }
 
 // Initialization flag to prevent duplicate calls
