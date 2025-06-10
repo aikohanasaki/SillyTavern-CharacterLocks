@@ -65,8 +65,45 @@ let isExtensionEnabled = false;
 // Cache for the current popup instance to allow content refresh
 let currentPopupInstance = null;
 
-// Create debounced functions using lodash
-const debouncedModelSettingsChanged = lodash.debounce(onModelSettingsChanged, SAVE_DEBOUNCE_TIME);
+
+// Enhanced debounced function with logging
+const debouncedModelSettingsChanged = lodash.debounce(function() {
+    console.log('STChatModelTemp: Debounced save triggered');
+    onModelSettingsChanged();
+}, SAVE_DEBOUNCE_TIME);
+
+// Add immediate save option for testing
+window.testSTChatModelTempSave = function() {
+    console.log('=== Manual Save Test ===');
+    saveCurrentSettingsImmediate();
+};
+
+// Add event trigger test
+window.testSTChatModelTempTrigger = function() {
+    console.log('=== Manual Trigger Test ===');
+    onModelSettingsChanged();
+};
+
+// Test current settings detection
+window.testSTChatModelTempCurrent = function() {
+    console.log('=== Current Settings Test ===');
+    const selectors = getApiSelectors();
+    const apiInfo = getCurrentApiInfo();
+    
+    console.log('API Info:', apiInfo);
+    console.log('Selectors:', selectors);
+    
+    if (apiInfo.completionSource === 'custom') {
+        console.log('Custom Model ID:', $(SELECTORS.customModelId).val());
+        console.log('Custom Model Select:', $(SELECTORS.modelCustomSelect).val());
+    } else {
+        console.log('Model:', $(selectors.model).val());
+    }
+    
+    console.log('Temperature (main):', $(selectors.temp).val());
+    console.log('Temperature (counter):', $(selectors.tempCounter).val());
+};
+
 
 // Handlebars templates for better HTML generation
 const popupTemplate = Handlebars.compile(`
@@ -476,13 +513,52 @@ function handlePopupClose(popup) {
     }
 }
 
+// Add this function to debug available events
+function debugAvailableEvents() {
+    console.log('=== STChatModelTemp Event Debug ===');
+    console.log('eventSource available:', !!eventSource);
+    console.log('event_types available:', !!event_types);
+    
+    if (event_types) {
+        console.log('Available event types:', Object.keys(event_types));
+        console.log('GENERATION_STARTED:', event_types.GENERATION_STARTED);
+        console.log('MESSAGE_RECEIVED:', event_types.MESSAGE_RECEIVED);
+        console.log('CHARACTER_MESSAGE_RENDERED:', event_types.CHARACTER_MESSAGE_RENDERED);
+    }
+    
+    // Test if we can listen to a simple event
+    if (eventSource && event_types) {
+        console.log('Testing event listener registration...');
+        
+        const testHandler = () => {
+            console.log('STChatModelTemp: Test event received!');
+        };
+        
+        try {
+            eventSource.on(event_types.MESSAGE_RECEIVED, testHandler);
+            console.log('Successfully registered test event listener');
+            
+            // Remove it after a few seconds
+            setTimeout(() => {
+                eventSource.off(event_types.MESSAGE_RECEIVED, testHandler);
+                console.log('Test event listener removed');
+            }, 5000);
+        } catch (e) {
+            console.error('Failed to register test event listener:', e);
+        }
+    }
+}
+
+/**
+ * Enhanced event listener setup with multiple event options
+ */
 function setupEventListeners() {
     // Menu item click handler
     $(document).on('click', SELECTORS.menuItem, function() {
         showPopup();
     });
 
-    // Enhanced SillyTavern event handlers with retry mechanism
+    // Enhanced SillyTavern event handlers with multiple fallback events
     function registerSillyTavernEvents() {
         try {
             if (!eventSource || !event_types) {
@@ -491,6 +567,10 @@ function setupEventListeners() {
                 return;
             }
 
+            // Debug available events
+            debugAvailableEvents();
+
+            // Character and chat change events
             eventSource.on(event_types.CHARACTER_SELECTED, onCharacterChanged);
             eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
             
@@ -502,18 +582,62 @@ function setupEventListeners() {
                 }, 500);
             });
             
-            // Only autosave on generation_started event
-            eventSource.on(event_types.GENERATION_STARTED, () => {
-                console.log('STChatModelTemp: Generation started event detected');
-                const extensionSettings = getExtensionSettings();
-                console.log('STChatModelTemp: Auto-save enabled:', extensionSettings.moduleSettings.autoSave);
-                console.log('STChatModelTemp: Extension enabled:', isExtensionEnabled);
+            // AUTO-SAVE EVENTS - Try multiple events for better reliability
+            const extensionSettings = getExtensionSettings();
+            
+            if (extensionSettings.moduleSettings.autoSave) {
+                console.log('STChatModelTemp: Setting up auto-save event listeners');
                 
-                if (getExtensionSettings().moduleSettings.autoSave && isExtensionEnabled) {
-                    console.log('STChatModelTemp: Triggering auto-save...');
-                    debouncedModelSettingsChanged();
+                // Primary event - GENERATION_STARTED
+                if (event_types.GENERATION_STARTED) {
+                    eventSource.on(event_types.GENERATION_STARTED, () => {
+                        console.log('STChatModelTemp: GENERATION_STARTED event detected');
+                        if (getExtensionSettings().moduleSettings.autoSave && isExtensionEnabled) {
+                            console.log('STChatModelTemp: Triggering auto-save from GENERATION_STARTED...');
+                            debouncedModelSettingsChanged();
+                        }
+                    });
                 }
-            });
+                
+                // Fallback event 1 - chat_completion_prompt_ready (fires right before generation)
+                if (event_types.CHAT_COMPLETION_PROMPT_READY) {
+                    eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, () => {
+                        console.log('STChatModelTemp: CHAT_COMPLETION_PROMPT_READY event detected');
+                        if (getExtensionSettings().moduleSettings.autoSave && isExtensionEnabled) {
+                            console.log('STChatModelTemp: Triggering auto-save from CHAT_COMPLETION_PROMPT_READY...');
+                            debouncedModelSettingsChanged();
+                        }
+                    });
+                }
+                
+                // Fallback event 2 - generate_after_data
+                if (event_types.GENERATE_AFTER_DATA) {
+                    eventSource.on(event_types.GENERATE_AFTER_DATA, () => {
+                        console.log('STChatModelTemp: GENERATE_AFTER_DATA event detected');
+                        if (getExtensionSettings().moduleSettings.autoSave && isExtensionEnabled) {
+                            console.log('STChatModelTemp: Triggering auto-save from GENERATE_AFTER_DATA...');
+                            debouncedModelSettingsChanged();
+                        }
+                    });
+                }
+                
+                // Alternative approach - listen for when generation ends and save for next time
+                if (event_types.GENERATION_ENDED) {
+                    eventSource.on(event_types.GENERATION_ENDED, () => {
+                        console.log('STChatModelTemp: GENERATION_ENDED event detected');
+                        if (getExtensionSettings().moduleSettings.autoSave && isExtensionEnabled) {
+                            console.log('STChatModelTemp: Triggering auto-save from GENERATION_ENDED...');
+                            // Save settings after generation for next time
+                            setTimeout(() => {
+                                debouncedModelSettingsChanged();
+                            }, 1000);
+                        }
+                    });
+                }
+                
+                // Manual DOM observation fallback for generate button clicks
+                setupGenerateButtonObserver();
+            }
             
             console.log('STChatModelTemp: Event listeners registered successfully');
         } catch (e) {
@@ -527,6 +651,7 @@ function setupEventListeners() {
 
     // API change handlers
     $(document).on('change', `${SELECTORS.mainApi}, ${SELECTORS.completionSource}`, function() {
+        console.log('STChatModelTemp: API change detected');
         checkApiCompatibility();
         if (isExtensionEnabled) {
             setTimeout(() => {
@@ -543,8 +668,51 @@ function setupEventListeners() {
         'modelBlockentropy', 'tempOpenai', 'tempCounterOpenai'
     ])).join(', ');
     
-    $(document).on('change input', modelSelectors, debouncedModelSettingsChanged);
+    $(document).on('change input', modelSelectors, function(e) {
+        console.log('STChatModelTemp: Model/temp setting changed:', e.target.id);
+        debouncedModelSettingsChanged();
+    });
 }
+
+/**
+ * Fallback: Observe the generate button for clicks
+ */
+function setupGenerateButtonObserver() {
+    console.log('STChatModelTemp: Setting up generate button observer');
+    
+    // Look for common generate button selectors
+    const generateButtonSelectors = [
+        '#send_but',           // Main send button
+        '#send_textarea',      // Send button in textarea
+        '.mes_send_button',    // Message send button
+        '[data-i18n="Send"]'   // Internationalized send button
+    ];
+    
+    // Use event delegation to catch button clicks
+    $(document).on('click', generateButtonSelectors.join(', '), function() {
+        console.log('STChatModelTemp: Generate button clicked (fallback detection)');
+        if (getExtensionSettings().moduleSettings.autoSave && isExtensionEnabled) {
+            console.log('STChatModelTemp: Triggering auto-save from button click...');
+            debouncedModelSettingsChanged();
+        }
+    });
+    
+    // Also watch for Enter key in input fields
+    $(document).on('keydown', '#send_textarea', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            console.log('STChatModelTemp: Enter key detected in textarea (fallback detection)');
+            if (getExtensionSettings().moduleSettings.autoSave && isExtensionEnabled) {
+                console.log('STChatModelTemp: Triggering auto-save from Enter key...');
+                setTimeout(() => {
+                    debouncedModelSettingsChanged();
+                }, 100); // Small delay to let the generation start
+            }
+        }
+    });
+}
+
+// Add this to window for manual testing
+window.debugSTChatModelTempEvents = debugAvailableEvents;
 
 function getApiSelectors() {
     const completionSource = $(SELECTORS.completionSource).val();
@@ -617,12 +785,32 @@ function onChatChanged() {
 }
 
 /**
- * Handle model/temperature changes
+ * Enhanced model settings change handler with better logging
  */
 function onModelSettingsChanged() {
+    console.log('STChatModelTemp: onModelSettingsChanged() called');
+    
     const extensionSettings = getExtensionSettings();
-    if (!isExtensionEnabled || !extensionSettings.moduleSettings.autoSave) return;
+    console.log('STChatModelTemp: Auto-save enabled:', extensionSettings.moduleSettings.autoSave);
+    console.log('STChatModelTemp: Extension enabled:', isExtensionEnabled);
+    
+    if (!isExtensionEnabled) {
+        console.log('STChatModelTemp: Skipping save - extension not enabled');
+        return;
+    }
+    
+    if (!extensionSettings.moduleSettings.autoSave) {
+        console.log('STChatModelTemp: Skipping save - auto-save disabled');
+        return;
+    }
 
+    console.log('STChatModelTemp: Proceeding with auto-save...');
+    saveCurrentSettings();
+}
+
+// Create a non-debounced version for testing
+function saveCurrentSettingsImmediate() {
+    console.log('STChatModelTemp: saveCurrentSettingsImmediate() called');
     saveCurrentSettings();
 }
 
@@ -919,6 +1107,174 @@ function migrateOldData() {
     
     console.log('STChatModelTemp: Data migration completed');
 }
+
+// Complete debugging and testing suite for STChatModelTemp
+window.STChatModelTempDebug = {
+    
+    // Test 1: Check if extension is working at all
+    testBasics: function() {
+        console.log('=== STChatModelTemp Basic Test ===');
+        console.log('1. Extension enabled:', isExtensionEnabled);
+        console.log('2. Current API info:', getCurrentApiInfo());
+        console.log('3. Current context:', getCurrentContext());
+        console.log('4. Extension settings exist:', !!getExtensionSettings());
+        console.log('5. Auto-save setting:', getExtensionSettings()?.moduleSettings?.autoSave);
+        console.log('6. Character memory setting:', getExtensionSettings()?.moduleSettings?.enableCharacterMemory);
+        console.log('7. Chat memory setting:', getExtensionSettings()?.moduleSettings?.enableChatMemory);
+    },
+    
+    // Test 2: Check event system
+    testEvents: function() {
+        console.log('=== STChatModelTemp Event System Test ===');
+        console.log('1. eventSource available:', !!eventSource);
+        console.log('2. event_types available:', !!event_types);
+        
+        if (event_types) {
+            const relevantEvents = [
+                'GENERATION_STARTED',
+                'CHAT_COMPLETION_PROMPT_READY', 
+                'GENERATE_AFTER_DATA',
+                'GENERATION_ENDED',
+                'MESSAGE_RECEIVED',
+                'CHARACTER_MESSAGE_RENDERED',
+                'CHARACTER_SELECTED',
+                'CHAT_CHANGED',
+                'CHAT_LOADED'
+            ];
+            
+            relevantEvents.forEach(eventName => {
+                console.log(`3. ${eventName}:`, event_types[eventName]);
+            });
+        }
+        
+        // Test event listener registration
+        if (eventSource && event_types) {
+            const testHandler = () => console.log('STChatModelTemp: Test event fired!');
+            
+            try {
+                eventSource.on(event_types.GENERATION_STARTED, testHandler);
+                console.log('4. Successfully registered test listener for GENERATION_STARTED');
+                
+                // Clean up
+                setTimeout(() => {
+                    eventSource.off(event_types.GENERATION_STARTED, testHandler);
+                    console.log('4. Test listener cleaned up');
+                }, 3000);
+            } catch (e) {
+                console.error('4. Failed to register test listener:', e);
+            }
+        }
+    },
+    
+    // Test 3: Check current form values
+    testCurrentValues: function() {
+        console.log('=== STChatModelTemp Current Values Test ===');
+        
+        const selectors = getApiSelectors();
+        const apiInfo = getCurrentApiInfo();
+        
+        console.log('1. API Info:', apiInfo);
+        console.log('2. Selectors used:', selectors);
+        
+        // Check model value
+        let currentModel = '';
+        if (apiInfo.completionSource === 'custom') {
+            const customId = $(SELECTORS.customModelId).val();
+            const customSelect = $(SELECTORS.modelCustomSelect).val();
+            console.log('3. Custom Model ID field:', customId);
+            console.log('3. Custom Model Select field:', customSelect);
+            currentModel = customId || customSelect || '';
+        } else {
+            currentModel = $(selectors.model).val() || '';
+            console.log('3. Standard Model field:', currentModel);
+        }
+        
+        // Check temperature values
+        const tempMain = $(selectors.temp).val();
+        const tempCounter = $(selectors.tempCounter).val();
+        console.log('4. Temperature (main field):', tempMain);
+        console.log('4. Temperature (counter field):', tempCounter);
+        console.log('4. Temperature (parsed):', parseFloat(tempMain || tempCounter || 0.7));
+        
+        console.log('5. Values that would be saved:', {
+            model: currentModel,
+            temperature: parseFloat(tempMain || tempCounter || 0.7),
+            completionSource: apiInfo.completionSource
+        });
+    },
+    
+    // Test 4: Force save and see what happens
+    testSave: function() {
+        console.log('=== STChatModelTemp Save Test ===');
+        console.log('Starting forced save...');
+        
+        try {
+            saveCurrentSettings();
+            console.log('Save function completed (check above for details)');
+        } catch (e) {
+            console.error('Save function failed:', e);
+        }
+    },
+    
+    // Test 5: Monitor events for 30 seconds
+    monitorEvents: function() {
+        console.log('=== STChatModelTemp Event Monitor ===');
+        console.log('Monitoring events for 30 seconds... try generating a message!');
+        
+        if (!eventSource || !event_types) {
+            console.log('Cannot monitor - eventSource or event_types not available');
+            return;
+        }
+        
+        const eventsToMonitor = [
+            'GENERATION_STARTED',
+            'CHAT_COMPLETION_PROMPT_READY',
+            'GENERATE_AFTER_DATA', 
+            'GENERATION_ENDED',
+            'MESSAGE_RECEIVED'
+        ];
+        
+        const handlers = {};
+        
+        eventsToMonitor.forEach(eventName => {
+            if (event_types[eventName]) {
+                const handler = (data) => {
+                    console.log(`🔥 EVENT DETECTED: ${eventName}`, data ? '(with data)' : '(no data)');
+                    
+                    // If it's a generation event and auto-save is on, test save
+                    if (eventName.includes('GENERATION') && getExtensionSettings()?.moduleSettings?.autoSave) {
+                        console.log('  → This should trigger auto-save!');
+                    }
+                };
+                
+                handlers[eventName] = handler;
+                eventSource.on(event_types[eventName], handler);
+                console.log(`Monitoring ${eventName}...`);
+            }
+        });
+        
+        // Clean up after 30 seconds
+        setTimeout(() => {
+            Object.entries(handlers).forEach(([eventName, handler]) => {
+                eventSource.off(event_types[eventName], handler);
+            });
+            console.log('Event monitoring stopped');
+        }, 30000);
+    },
+    
+    // Run all tests
+    runAll: function() {
+        this.testBasics();
+        setTimeout(() => this.testEvents(), 500);
+        setTimeout(() => this.testCurrentValues(), 1000);
+        setTimeout(() => this.testSave(), 1500);
+        console.log('All tests queued. Run STChatModelTempDebug.monitorEvents() and try generating a message!');
+    }
+};
+
+// Quick access functions
+window.debugSTChatModelTemp = () => STChatModelTempDebug.runAll();
+window.monitorSTChatModelTempEvents = () => STChatModelTempDebug.monitorEvents();
 
 /**
  * Migrates chat settings for the current chat from old global storage
