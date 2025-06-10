@@ -24,6 +24,7 @@ const SELECTORS = {
     modelGoogle: '#model_google_select',
     modelMistralai: '#model_mistralai_select',
     customModelId: '#custom_model_id',
+    modelCustomSelect: '#model_custom_select', // Added this selector
     modelCohere: '#model_cohere_select',
     modelPerplexity: '#model_perplexity_select',
     modelGroq: '#model_groq_select',
@@ -523,8 +524,8 @@ function setupEventListeners() {
     // Model settings change handlers using lodash.debounce
     const modelSelectors = lodash.values(lodash.pick(SELECTORS, [
         'modelOpenai', 'modelClaude', 'modelWindowai', 'modelOpenrouter', 'modelAi21', 
-        'modelScale', 'modelGoogle', 'modelMistralai', 'customModelId', 'modelCohere', 
-        'modelPerplexity', 'modelGroq', 'model01ai', 'modelNanogpt', 'modelDeepseek',
+        'modelScale', 'modelGoogle', 'modelMistralai', 'customModelId', 'modelCustomSelect', // Added modelCustomSelect here
+        'modelCohere', 'modelPerplexity', 'modelGroq', 'model01ai', 'modelNanogpt', 'modelDeepseek',
         'modelBlockentropy', 'tempOpenai', 'tempCounterOpenai'
     ])).join(', ');
     
@@ -693,12 +694,34 @@ function applySettings() {
         return;
     }
 
-    // Apply model setting
-    if (settingsToApply.model && $(selectors.model).length) {
-        const currentModel = $(selectors.model).val();
-        if (currentModel !== settingsToApply.model) {
-            $(selectors.model).val(settingsToApply.model).trigger('change');
-            console.log(`STChatModelTemp: Model changed from ${currentModel} to ${settingsToApply.model}`);
+    // Apply model setting - handle both custom fields for custom completion source
+    if (settingsToApply.model) {
+        if (apiInfo.completionSource === 'custom') {
+            // For custom completion source, update both custom_model_id and model_custom_select (prioritize custom_model_id)
+            if ($(SELECTORS.customModelId).length) {
+                const currentCustomId = $(SELECTORS.customModelId).val();
+                if (currentCustomId !== settingsToApply.model) {
+                    $(SELECTORS.customModelId).val(settingsToApply.model).trigger('change');
+                    console.log(`STChatModelTemp: Custom model ID changed from ${currentCustomId} to ${settingsToApply.model}`);
+                }
+            }
+            
+            if ($(SELECTORS.modelCustomSelect).length) {
+                const currentCustomSelect = $(SELECTORS.modelCustomSelect).val();
+                if (currentCustomSelect !== settingsToApply.model) {
+                    $(SELECTORS.modelCustomSelect).val(settingsToApply.model).trigger('change');
+                    console.log(`STChatModelTemp: Custom model select changed from ${currentCustomSelect} to ${settingsToApply.model}`);
+                }
+            }
+        } else {
+            // For other completion sources, use the standard selector
+            if ($(selectors.model).length) {
+                const currentModel = $(selectors.model).val();
+                if (currentModel !== settingsToApply.model) {
+                    $(selectors.model).val(settingsToApply.model).trigger('change');
+                    console.log(`STChatModelTemp: Model changed from ${currentModel} to ${settingsToApply.model}`);
+                }
+            }
         }
     }
 
@@ -737,7 +760,16 @@ async function saveCurrentSettings() {
     const selectors = getApiSelectors();
     const apiInfo = getCurrentApiInfo();
     
-    const currentModel = $(selectors.model).val();
+    let currentModel = '';
+    
+    // Get the current model based on completion source
+    if (apiInfo.completionSource === 'custom') {
+        // For custom completion source, prefer custom_model_id, fallback to model_custom_select
+        currentModel = $(SELECTORS.customModelId).val() || $(SELECTORS.modelCustomSelect).val() || '';
+    } else {
+        currentModel = $(selectors.model).val() || '';
+    }
+    
     const currentTemp = parseFloat($(selectors.temp).val() || $(selectors.tempCounter).val() || 0.7);
     
     const settingsData = {
