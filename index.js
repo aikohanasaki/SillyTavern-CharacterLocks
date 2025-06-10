@@ -1,7 +1,7 @@
 import { eventSource, event_types } from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../script.js';
-import { Popup, POPUP_TYPE, POPUP_RESULT } from '../../../../popup.js';
+import { Popup, POPUP_TYPE, POPUP_RESULT } from '../../../popup.js';
 import { lodash, moment, Handlebars, DOMPurify } from '../../../../lib.js';
 
 const MODULE_NAME = 'STChatModelTemp';
