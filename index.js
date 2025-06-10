@@ -1,7 +1,7 @@
 import { eventSource, event_types, this_chid, characters } from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../script.js';
-import { selected_group, groups } from '../../../../script.js';
+import { selected_group, groups } from '../../../group-chats.js';
 
 const MODULE_NAME = 'STChatModelTemp';
 const SAVE_DEBOUNCE_TIME = 1000;
