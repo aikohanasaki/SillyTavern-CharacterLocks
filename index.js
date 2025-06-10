@@ -64,6 +64,63 @@ let isExtensionEnabled = false;
 // Cache for the current popup instance to allow content refresh
 let currentPopupInstance = null;
 
+/**
+ * Safe set function using direct object access (no lodash path interpretation)
+ */
+function safeSetCharacterSettings(characterName, settings) {
+    const extensionSettings = getExtensionSettings();
+    
+    if (!characterName) {
+        console.warn('STChatModelTemp: Cannot save settings - invalid character name');
+        return false;
+    }
+    
+    // Use direct object assignment - no path interpretation issues
+    if (!extensionSettings.characterSettings) {
+        extensionSettings.characterSettings = {};
+    }
+    
+    extensionSettings.characterSettings[characterName] = settings;
+    console.log(`STChatModelTemp: Saved character settings for "${characterName}"`);
+    return true;
+}
+
+/**
+ * Safe get function using direct object access
+ */
+function safeGetCharacterSettings(characterName) {
+    const extensionSettings = getExtensionSettings();
+    
+    if (!characterName || !extensionSettings.characterSettings) {
+        return null;
+    }
+    
+    const settings = extensionSettings.characterSettings[characterName];
+    if (settings) {
+        console.log(`STChatModelTemp: Retrieved character settings for "${characterName}"`);
+    }
+    return settings || null;
+}
+
+/**
+ * Safe delete function using direct object access
+ */
+function safeDeleteCharacterSettings(characterName) {
+    const extensionSettings = getExtensionSettings();
+    
+    if (!characterName || !extensionSettings.characterSettings) {
+        return false;
+    }
+    
+    if (extensionSettings.characterSettings[characterName]) {
+        delete extensionSettings.characterSettings[characterName];
+        console.log(`STChatModelTemp: Deleted character settings for "${characterName}"`);
+        return true;
+    }
+    
+    return false;
+}
+
 // Enhanced debounced function with logging
 const debouncedModelSettingsChanged = lodash.debounce(function() {
     console.log('STChatModelTemp: Debounced save triggered');
@@ -638,7 +695,7 @@ function onModelSettingsChanged() {
 }
 
 /**
- * Update cached settings for current character/chat - simplified
+ * Update cached settings for current character/chat - using direct object access
  */
 function updateCachedSettings() {
     const extensionSettings = getExtensionSettings();
@@ -651,15 +708,15 @@ function updateCachedSettings() {
     // Only use chat_metadata.character_name - no fallbacks
     const characterName = getCharacterNameForSettings();
 
-    // Load character settings only if enabled and character exists
+    // Load character settings only if enabled and character exists - using direct access
     if (extensionSettings.moduleSettings.enableCharacterMemory && characterName) {
-        currentCharacterSettings = lodash.get(extensionSettings.characterSettings, characterName, null);
+        currentCharacterSettings = safeGetCharacterSettings(characterName);
         console.log(`STChatModelTemp: Loaded character settings for "${characterName}":`, currentCharacterSettings);
     }
 
     // Load chat settings from chat metadata only if enabled and chat exists
     if (extensionSettings.moduleSettings.enableChatMemory && context.chatId && chat_metadata) {
-        currentChatSettings = lodash.get(chat_metadata, 'STChatModelTemp', null);
+        currentChatSettings = chat_metadata.STChatModelTemp || null;
         console.log('STChatModelTemp: Loaded chat settings:', currentChatSettings);
     }
 
@@ -773,7 +830,7 @@ function applySettings() {
 }
 
 /**
- * Save current model and temperature settings - simplified character name
+ * Save current model and temperature settings - using direct object access
  */
 async function saveCurrentSettings() {
     if (!isExtensionEnabled) {
@@ -804,16 +861,23 @@ async function saveCurrentSettings() {
         savedAt: moment().toISOString()
     };
 
-    // Save character settings using only chat_metadata character name
+    // Save character settings using direct access
     const characterName = getCharacterNameForSettings();
     if (extensionSettings.moduleSettings.enableCharacterMemory && characterName) {
-        lodash.set(extensionSettings.characterSettings, characterName, settingsData);
-        currentCharacterSettings = lodash.cloneDeep(settingsData);
-        
-        console.log(`STChatModelTemp: Saved character settings for "${characterName}":`, settingsData);
-        
-        if (extensionSettings.moduleSettings.showNotifications) {
-            toastr.success(`Character settings saved for ${characterName} (${apiInfo.completionSource})`, 'STChatModelTemp');
+        const success = safeSetCharacterSettings(characterName, settingsData);
+        if (success) {
+            currentCharacterSettings = lodash.cloneDeep(settingsData);
+            
+            console.log(`STChatModelTemp: Saved character settings for "${characterName}":`, settingsData);
+            
+            if (extensionSettings.moduleSettings.showNotifications) {
+                toastr.success(`Character settings saved for ${characterName} (${apiInfo.completionSource})`, 'STChatModelTemp');
+            }
+        } else {
+            console.error(`STChatModelTemp: Failed to save character settings for "${characterName}"`);
+            if (extensionSettings.moduleSettings.showNotifications) {
+                toastr.error(`Failed to save character settings for ${characterName}`, 'STChatModelTemp');
+            }
         }
     }
 
@@ -823,7 +887,7 @@ async function saveCurrentSettings() {
             window.chat_metadata = {};
         }
         
-        lodash.set(chat_metadata, 'STChatModelTemp', settingsData);
+        chat_metadata.STChatModelTemp = settingsData;
         currentChatSettings = lodash.cloneDeep(settingsData);
         
         console.log('STChatModelTemp: Saved chat settings:', settingsData);
@@ -839,22 +903,23 @@ async function saveCurrentSettings() {
 }
 
 /**
- * Clear character-specific settings - simplified
+ * Clear character-specific settings - using direct object access
  */
 async function clearCharacterSettings() {
     const extensionSettings = getExtensionSettings();
     const characterName = getCharacterNameForSettings();
     if (!characterName) return;
 
-    lodash.unset(extensionSettings.characterSettings, characterName);
-    currentCharacterSettings = null;
-    
-    console.log(`STChatModelTemp: Cleared character settings for "${characterName}"`);
-    
-    saveSettingsDebounced();
-    
-    if (extensionSettings.moduleSettings.showNotifications) {
-        toastr.info(`Character settings cleared for ${characterName}`, 'STChatModelTemp');
+    const success = safeDeleteCharacterSettings(characterName);
+    if (success) {
+        currentCharacterSettings = null;
+        console.log(`STChatModelTemp: Cleared character settings for "${characterName}"`);
+        
+        saveSettingsDebounced();
+        
+        if (extensionSettings.moduleSettings.showNotifications) {
+            toastr.info(`Character settings cleared for ${characterName}`, 'STChatModelTemp');
+        }
     }
 }
 
@@ -866,7 +931,7 @@ async function clearChatSettings() {
     const context = getCurrentContext();
     if (!context.chatId || !chat_metadata) return;
 
-    lodash.unset(chat_metadata, 'STChatModelTemp');
+    delete chat_metadata.STChatModelTemp;
     currentChatSettings = null;
     
     saveMetadataDebounced();
@@ -877,42 +942,62 @@ async function clearChatSettings() {
 }
 
 /**
- * Migrates old data structures to new format
+ * Migrates old data structures to new format using direct object access
  */
 function migrateOldData() {
     const extensionSettings = getExtensionSettings();
     
-    if (extensionSettings.migrationVersion >= 1) {
+    if (extensionSettings.migrationVersion >= 2) {
         console.log('STChatModelTemp: Migration already completed');
         return;
     }
     
     console.log('STChatModelTemp: Starting data migration...');
     
-    // Migrate character settings from character ID to character name
+    // Migrate character settings - convert any escaped keys back to original names
     if (extensionSettings.characterSettings && Object.keys(extensionSettings.characterSettings).length > 0) {
         const oldCharacterSettings = { ...extensionSettings.characterSettings };
         const newCharacterSettings = {};
         let migratedCount = 0;
         
         for (const [characterKey, settings] of Object.entries(oldCharacterSettings)) {
-            const character = window.characters?.find(char => 
-                char.avatar === characterKey || 
-                String(window.characters.indexOf(char)) === characterKey
-            );
+            let characterName = characterKey;
             
-            if (character && character.name) {
-                newCharacterSettings[character.name] = settings;
-                migratedCount++;
-                console.log(`STChatModelTemp: Migrated settings for ${character.name} (was ${characterKey})`);
-            } else {
-                newCharacterSettings[characterKey] = settings;
-                console.warn(`STChatModelTemp: Could not migrate character settings for key: ${characterKey}`);
+            // Check if this is an escaped key and unescape it
+            if (characterKey.includes('\\')) {
+                try {
+                    characterName = characterKey
+                        .replace(/\\\\/g, '\\')  // Unescape backslashes
+                        .replace(/\\\./g, '.')   // Unescape dots
+                        .replace(/\\\]/g, ']')   // Unescape closing brackets
+                        .replace(/\\\[/g, '[');  // Unescape opening brackets
+                    console.log(`STChatModelTemp: Unescaped character key "${characterKey}" to "${characterName}"`);
+                } catch (e) {
+                    console.warn(`STChatModelTemp: Could not unescape key "${characterKey}", using as-is`);
+                }
             }
+            
+            // Try to find character by old key format for legacy support
+            if (!window.characters?.find(char => char.name === characterName)) {
+                const character = window.characters?.find(char => 
+                    char.avatar === characterKey || 
+                    String(window.characters.indexOf(char)) === characterKey
+                );
+                
+                if (character && character.name) {
+                    characterName = character.name;
+                    console.log(`STChatModelTemp: Found character name "${characterName}" for old key "${characterKey}"`);
+                }
+            }
+            
+            // Store with the final character name (no escaping needed)
+            newCharacterSettings[characterName] = settings;
+            migratedCount++;
+            console.log(`STChatModelTemp: Migrated settings for "${characterName}"`);
         }
         
         extensionSettings.characterSettings = newCharacterSettings;
-        console.log(`STChatModelTemp: Migrated ${migratedCount} character settings`);
+        console.log(`STChatModelTemp: Migrated ${migratedCount} character settings to direct access format`);
     }
     
     // Remove old chatSettings from extension settings
@@ -921,7 +1006,7 @@ function migrateOldData() {
         delete extensionSettings.chatSettings;
     }
     
-    extensionSettings.migrationVersion = 1;
+    extensionSettings.migrationVersion = 2;
     saveSettingsDebounced();
     
     console.log('STChatModelTemp: Data migration completed');
@@ -936,7 +1021,7 @@ let hasInitialized = false;
 async function init() {
     if (hasInitialized) return;
     hasInitialized = true;
-    console.log('STChatModelTemp: Initializing optimized version');
+    console.log('STChatModelTemp: Initializing optimized version with direct object access');
     
     // Wait for SillyTavern to be ready
     let attempts = 0;
@@ -973,7 +1058,7 @@ async function init() {
         console.log('STChatModelTemp: Initial context loaded');
     }, 1000);
 
-    console.log('STChatModelTemp: Optimized extension loaded successfully');
+    console.log('STChatModelTemp: Optimized extension loaded successfully with direct object access');
 }
 
 // Initialize when the extension loads
@@ -985,5 +1070,5 @@ $(document).ready(() => {
     // Fallback initialization
     setTimeout(init, 1500);
     
-    console.log('STChatModelTemp: Ready to initialize (optimized)');
+    console.log('STChatModelTemp: Ready to initialize (optimized with direct object access)');
 });
