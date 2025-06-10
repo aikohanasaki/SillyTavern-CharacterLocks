@@ -1,6 +1,7 @@
-import { eventSource, event_types } from '../../../../script.js';
+import { eventSource, event_types, this_chid, characters } from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../script.js';
+import { selected_group, groups } from '../../../../script.js';
 
 const MODULE_NAME = 'STChatModelTemp';
 const SAVE_DEBOUNCE_TIME = 1000;
@@ -138,11 +139,91 @@ function updateExtensionState() {
  * Get current context information using SillyTavern globals
  */
 function getCurrentContext() {
+    let characterId = null;
+    let chatId = null;
+    let groupId = null;
+    
+    // Get character ID (this_chid is exported from script.js)
+    if (this_chid !== undefined && this_chid !== null) {
+        characterId = this_chid;
+    }
+    
+    // Get chat ID using the same logic as the exported getCurrentChatId function
+    if (selected_group) {
+        // For group chats
+        groupId = selected_group;
+        const group = groups.find(x => x.id == selected_group);
+        chatId = group?.chat_id;
+    } else if (this_chid !== undefined) {
+        // For character chats
+        chatId = characters[this_chid]?.chat;
+    }
+    
     return {
-        characterId: window.this_chid,
-        chatId: window.getCurrentChatId ? window.getCurrentChatId() : null,
-        groupId: window.selected_group
+        characterId,
+        chatId,
+        groupId
     };
+}
+
+/**
+ * Alternative function that recreates getCurrentChatId locally if imports don't work
+ */
+function getContextFallback() {
+    let characterId = null;
+    let chatId = null;
+    let groupId = null;
+    
+    // Try to access global variables directly (fallback method)
+    try {
+        // Access through window object as fallback
+        characterId = window.this_chid;
+        groupId = window.selected_group;
+        
+        if (window.selected_group && window.groups) {
+            const group = window.groups.find(x => x.id == window.selected_group);
+            chatId = group?.chat_id;
+        } else if (window.this_chid !== undefined && window.characters) {
+            chatId = window.characters[window.this_chid]?.chat;
+        }
+    } catch (e) {
+        console.warn('STChatModelTemp: Could not access context variables:', e);
+    }
+    
+    return {
+        characterId,
+        chatId,
+        groupId
+    };
+}
+
+/**
+ * Robust context getter with import and fallback methods
+ */
+function getCurrentContextRobust() {
+    // Try imports first
+    try {
+        return getCurrentContext();
+    } catch (e) {
+        console.warn('STChatModelTemp: Import method failed, trying fallback:', e);
+        return getContextFallback();
+    }
+}
+
+// Test function to verify context access
+function testContext() {
+    console.log('=== Context Test ===');
+    
+    // Test imported variables
+    console.log('Imported this_chid:', this_chid);
+    console.log('Imported characters length:', characters?.length);
+    console.log('Imported selected_group:', selected_group);
+    
+    // Test context function
+    const context = getCurrentContextRobust();
+    console.log('Context result:', context);
+    
+    return context;
 }
 function getApiSelectors() {
     const completionSource = $('#chat_completion_source').val();
@@ -620,6 +701,8 @@ function updateUI() {
     $('#stcmt-character-info').text(characterInfo);
     $('#stcmt-chat-info').text(chatInfo);
 }
+
+console.log('STChatModelTemp Context Test:', getCurrentContextRobust());
 
 // Initialize when the extension loads
 $(document).ready(() => {

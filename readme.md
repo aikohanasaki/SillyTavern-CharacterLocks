@@ -24,8 +24,3 @@ Remembers model and temperature settings for each character and individual chat,
 ## Development Notes
 
 Vibe coded with Claude Sonnet 4.
-This extension is designed to be completely self-contained and update-safe:
-
-- `.gitignore` prevents settings from being tracked in version control
-- Robust error handling for file operations
-- Graceful fallbacks when settings file is missing or corrupted
