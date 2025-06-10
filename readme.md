@@ -9,9 +9,9 @@ Remembers model and temperature settings for each character and individual chat,
 
 ## Features
 
-- **Per-Character Memory**: Save different model/temperature settings for each character
-- **Per-Chat Memory**: Save different settings for individual conversations with the same character
-- **Auto-Save**: Automatically saves settings when you change model or temperature
+- **Per-Character Memory**: Save different model/temperature settings for each character in settings.json
+- **Per-Chat Memory**: Save different settings for individual conversations with the same character in chat metadata
+- **Auto-Save**: Automatically saves settings upon generation 
 - **Priority Control**: Choose whether character settings override chat settings or vice versa
 
 ## Usage
