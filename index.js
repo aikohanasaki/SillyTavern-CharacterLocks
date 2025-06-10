@@ -519,13 +519,30 @@ function getApiSelectors() {
  */
 function onCharacterChanged() {
     const extensionSettings = getExtensionSettings();
-    if (!isExtensionEnabled || (!extensionSettings.moduleSettings.enableCharacterMemory && !extensionSettings.moduleSettings.enableChatMemory)) return;
+    if (!isExtensionEnabled || (!extensionSettings.moduleSettings.enableCharacterMemory && !extensionSettings.moduleSettings.enableChatMemory)) {
+        console.log('STChatModelTemp: Character change ignored - extension disabled or no memory features enabled');
+        return;
+    }
 
     const context = getCurrentContext();
-    if (!context.characterId) return;
+    if (!context.characterId) {
+        console.log('STChatModelTemp: Character change ignored - no character ID');
+        return;
+    }
 
+    console.log('STChatModelTemp: Character changed to:', {
+        characterId: context.characterId,
+        characterName: context.characterName,
+        chatId: context.chatId
+    });
+
+    // Clear any existing cached settings and load new ones
     updateCachedSettings();
+    
+    // Apply settings for the new character/chat context
     applySettings();
+    
+    console.log('STChatModelTemp: Character change handling complete');
 }
 
 /**
@@ -556,63 +573,110 @@ function updateCachedSettings() {
     const extensionSettings = getExtensionSettings();
     const context = getCurrentContext();
 
-    // Load character settings
+    // Always clear cached settings first to avoid stale data
+    currentCharacterSettings = null;
+    currentChatSettings = null;
+
+    // Load character settings only if enabled and character exists
     if (extensionSettings.moduleSettings.enableCharacterMemory && context.characterId) {
         const characterKey = String(context.characterId);
         currentCharacterSettings = lodash.get(extensionSettings.characterSettings, characterKey, null);
     }
 
-    // Load chat settings
+    // Load chat settings only if enabled and chat exists
     if (extensionSettings.moduleSettings.enableChatMemory && context.chatId) {
         const chatKey = String(context.chatId);
         currentChatSettings = lodash.get(extensionSettings.chatSettings, chatKey, null);
     }
+
+    // Debug logging to help troubleshoot
+    console.log('STChatModelTemp: Cached settings updated', {
+        characterId: context.characterId,
+        chatId: context.chatId,
+        hasCharacterSettings: !!currentCharacterSettings,
+        hasChatSettings: !!currentChatSettings
+    });
 }
 
 /**
  * Apply the appropriate settings based on priority
  */
 function applySettings() {
-    if (!isExtensionEnabled) return;
+    if (!isExtensionEnabled) {
+        console.log('STChatModelTemp: Settings not applied - extension not enabled');
+        return;
+    }
 
     const extensionSettings = getExtensionSettings();
     let settingsToApply = null;
+    let settingsSource = null;
 
+    // Determine which settings to apply based on preference
     if (extensionSettings.moduleSettings.preferCharacterOverChat) {
-        settingsToApply = currentCharacterSettings || currentChatSettings;
+        if (currentCharacterSettings) {
+            settingsToApply = currentCharacterSettings;
+            settingsSource = 'character';
+        } else if (currentChatSettings) {
+            settingsToApply = currentChatSettings;
+            settingsSource = 'chat (fallback)';
+        }
     } else {
-        settingsToApply = currentChatSettings || currentCharacterSettings;
+        if (currentChatSettings) {
+            settingsToApply = currentChatSettings;
+            settingsSource = 'chat';
+        } else if (currentCharacterSettings) {
+            settingsToApply = currentCharacterSettings;
+            settingsSource = 'character (fallback)';
+        }
     }
 
-    if (!settingsToApply) return;
+    if (!settingsToApply) {
+        console.log('STChatModelTemp: No settings to apply for current context');
+        return;
+    }
+
+    console.log(`STChatModelTemp: Applying ${settingsSource} settings:`, settingsToApply);
 
     const selectors = getApiSelectors();
     const apiInfo = getCurrentApiInfo();
 
+    // Check if the saved settings match the current completion source
     if (settingsToApply.completionSource && settingsToApply.completionSource !== apiInfo.completionSource) {
         if (extensionSettings.moduleSettings.showNotifications) {
             toastr.warning(`Saved settings for ${settingsToApply.completionSource}, current source is ${apiInfo.completionSource}`, 'STChatModelTemp');
         }
+        console.log(`STChatModelTemp: Settings not applied - completion source mismatch (saved: ${settingsToApply.completionSource}, current: ${apiInfo.completionSource})`);
         return;
     }
 
+    // Apply model setting
     if (settingsToApply.model && $(selectors.model).length) {
-        $(selectors.model).val(settingsToApply.model).trigger('change');
+        const currentModel = $(selectors.model).val();
+        if (currentModel !== settingsToApply.model) {
+            $(selectors.model).val(settingsToApply.model).trigger('change');
+            console.log(`STChatModelTemp: Model changed from ${currentModel} to ${settingsToApply.model}`);
+        }
     }
 
+    // Apply temperature setting
     if (lodash.isNumber(settingsToApply.temperature)) {
-        if ($(selectors.temp).length) {
-            $(selectors.temp).val(settingsToApply.temperature);
-        }
-        if ($(selectors.tempCounter).length) {
-            $(selectors.tempCounter).val(settingsToApply.temperature);
+        const currentTemp = parseFloat($(selectors.temp).val() || $(selectors.tempCounter).val() || 0);
+        if (Math.abs(currentTemp - settingsToApply.temperature) > 0.001) {
+            if ($(selectors.temp).length) {
+                $(selectors.temp).val(settingsToApply.temperature);
+            }
+            if ($(selectors.tempCounter).length) {
+                $(selectors.tempCounter).val(settingsToApply.temperature);
+            }
+            console.log(`STChatModelTemp: Temperature changed from ${currentTemp} to ${settingsToApply.temperature}`);
         }
     }
 
     if (extensionSettings.moduleSettings.showNotifications) {
-        const source = extensionSettings.moduleSettings.preferCharacterOverChat && currentCharacterSettings ? 'character' : 'chat';
-        toastr.info(`Applied ${source} settings for ${settingsToApply.completionSource}`, 'STChatModelTemp');
+        toastr.info(`Applied ${settingsSource} settings for ${settingsToApply.completionSource}`, 'STChatModelTemp');
     }
+    
+    console.log(`STChatModelTemp: Successfully applied ${settingsSource} settings`);
 }
 
 /**
