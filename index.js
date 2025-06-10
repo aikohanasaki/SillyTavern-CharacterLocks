@@ -433,27 +433,33 @@ async function showPopup() {
             text: '💾 Update Settings',
             result: null,
             classes: ['menu_button'],
-            action: async () => {
+            action: async (popup) => {
                 await saveCurrentSettings();
                 refreshPopupContent();
+                // Return false to prevent the popup from closing
+                return false;
             }
         },
         {
             text: '🗑️ Clear Character Settings',
             result: null,
             classes: ['menu_button'],
-            action: async () => {
+            action: async (popup) => {
                 await clearCharacterSettings();
                 refreshPopupContent();
+                // Return false to prevent the popup from closing
+                return false;
             }
         },
         {
             text: '🗑️ Clear Chat Settings',
             result: null,
             classes: ['menu_button'],
-            action: async () => {
+            action: async (popup) => {
                 await clearChatSettings();
                 refreshPopupContent();
+                // Return false to prevent the popup from closing
+                return false;
             }
         }
     ];
