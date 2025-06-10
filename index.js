@@ -244,24 +244,24 @@ function getCurrentContext() {
  * Get character name for settings - only from chat_metadata
  */
 function getCharacterNameForSettings() {
-    const rawCharacterName = chat_metadata?.character_name;
+    // Try multiple sources for character name
+    const rawCharacterName = name2 || 
+                            characters[this_chid]?.name || 
+                            characters[this_chid]?.avatar;
     
     if (!rawCharacterName) {
-        console.warn('STChatModelTemp: No character name available in chat_metadata');
+        console.warn('STChatModelTemp: No character name available');
         return null;
     }
     
-    // Normalize the character name to handle character set issues
     let characterName = String(rawCharacterName).trim();
     
-    // Normalize unicode characters to ensure consistency
     if (characterName.normalize) {
         characterName = characterName.normalize('NFC');
     }
     
-    // Log both raw and processed names for debugging
-    console.log('STChatModelTemp: Raw character name from chat_metadata:', rawCharacterName);
-    console.log('STChatModelTemp: Normalized character name for settings:', characterName);
+    console.log('STChatModelTemp: Raw character name:', rawCharacterName);
+    console.log('STChatModelTemp: Normalized character name:', characterName);
     
     return characterName;
 }
