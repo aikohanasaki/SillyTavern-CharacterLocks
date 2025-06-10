@@ -75,13 +75,20 @@ function safeSetCharacterSettings(characterName, settings) {
         return false;
     }
     
+    // Normalize the character name before using as key
+    let normalizedName = String(characterName).trim();
+    if (normalizedName.normalize) {
+        normalizedName = normalizedName.normalize('NFC');
+    }
+    
     // Use direct object assignment - no path interpretation issues
     if (!extensionSettings.characterSettings) {
         extensionSettings.characterSettings = {};
     }
     
-    extensionSettings.characterSettings[characterName] = settings;
-    console.log(`STChatModelTemp: Saved character settings for "${characterName}"`);
+    extensionSettings.characterSettings[normalizedName] = settings;
+    console.log(`STChatModelTemp: Saved character settings for normalized name "${normalizedName}"`);
+    console.log('STChatModelTemp: Settings saved:', settings);
     return true;
 }
 
@@ -95,9 +102,21 @@ function safeGetCharacterSettings(characterName) {
         return null;
     }
     
-    const settings = extensionSettings.characterSettings[characterName];
+    // Normalize the character name before looking it up
+    let normalizedName = String(characterName).trim();
+    if (normalizedName.normalize) {
+        normalizedName = normalizedName.normalize('NFC');
+    }
+    
+    const settings = extensionSettings.characterSettings[normalizedName];
     if (settings) {
-        console.log(`STChatModelTemp: Retrieved character settings for "${characterName}"`);
+        console.log(`STChatModelTemp: Retrieved character settings for normalized name "${normalizedName}"`);
+        console.log('STChatModelTemp: Settings retrieved:', settings);
+    } else {
+        console.log(`STChatModelTemp: No settings found for normalized name "${normalizedName}"`);
+        // Debug: show all available character keys
+        const availableKeys = Object.keys(extensionSettings.characterSettings || {});
+        console.log('STChatModelTemp: Available character keys:', availableKeys);
     }
     return settings || null;
 }
@@ -112,12 +131,19 @@ function safeDeleteCharacterSettings(characterName) {
         return false;
     }
     
-    if (extensionSettings.characterSettings[characterName]) {
-        delete extensionSettings.characterSettings[characterName];
-        console.log(`STChatModelTemp: Deleted character settings for "${characterName}"`);
+    // Normalize the character name before deleting
+    let normalizedName = String(characterName).trim();
+    if (normalizedName.normalize) {
+        normalizedName = normalizedName.normalize('NFC');
+    }
+    
+    if (extensionSettings.characterSettings[normalizedName]) {
+        delete extensionSettings.characterSettings[normalizedName];
+        console.log(`STChatModelTemp: Deleted character settings for normalized name "${normalizedName}"`);
         return true;
     }
     
+    console.log(`STChatModelTemp: No settings to delete for normalized name "${normalizedName}"`);
     return false;
 }
 
@@ -177,12 +203,17 @@ function getCurrentContext() {
         let chatId = null;
         let chatName = null;
 
-        // Only use chat_metadata.character_name - no fallbacks
-        if (chat_metadata?.character_name) {
-            characterName = chat_metadata.character_name;
+        // ONLY use chat_metadata.character_name with proper normalization
+        const rawCharacterName = chat_metadata?.character_name;
+        if (rawCharacterName) {
+            characterName = String(rawCharacterName).trim();
+            // Normalize unicode characters
+            if (characterName.normalize) {
+                characterName = characterName.normalize('NFC');
+            }
         }
 
-        // Get chat information using SillyTavern's function
+        // Get chat information
         if (typeof window.getCurrentChatId === 'function') {
             chatId = window.getCurrentChatId();
             chatName = chatId;
@@ -195,7 +226,7 @@ function getCurrentContext() {
             chatName
         };
 
-        console.log('STChatModelTemp: Context resolved (chat_metadata only):', result);
+        console.log('STChatModelTemp: Context resolved (chat_metadata only, normalized):', result);
         return result;
         
     } catch (e) {
@@ -213,16 +244,26 @@ function getCurrentContext() {
  * Get character name for settings - only from chat_metadata
  */
 function getCharacterNameForSettings() {
-    const characterName = chat_metadata?.character_name;
+    const rawCharacterName = chat_metadata?.character_name;
     
-    if (!characterName) {
+    if (!rawCharacterName) {
         console.warn('STChatModelTemp: No character name available in chat_metadata');
         return null;
     }
     
-    const cleanCharacterName = String(characterName).trim();
-    console.log('STChatModelTemp: Using character name for settings:', cleanCharacterName);
-    return cleanCharacterName;
+    // Normalize the character name to handle character set issues
+    let characterName = String(rawCharacterName).trim();
+    
+    // Normalize unicode characters to ensure consistency
+    if (characterName.normalize) {
+        characterName = characterName.normalize('NFC');
+    }
+    
+    // Log both raw and processed names for debugging
+    console.log('STChatModelTemp: Raw character name from chat_metadata:', rawCharacterName);
+    console.log('STChatModelTemp: Normalized character name for settings:', characterName);
+    
+    return characterName;
 }
 
 /**
@@ -711,26 +752,32 @@ function updateCachedSettings() {
     currentCharacterSettings = null;
     currentChatSettings = null;
 
-    // Only use chat_metadata.character_name - no fallbacks
+    // Get normalized character name from chat_metadata ONLY
     const characterName = getCharacterNameForSettings();
 
-    // Load character settings only if enabled and character exists - using direct access
+    // Load character settings only if enabled and character exists
     if (extensionSettings.moduleSettings.enableCharacterMemory && characterName) {
         currentCharacterSettings = safeGetCharacterSettings(characterName);
         console.log(`STChatModelTemp: Loaded character settings for "${characterName}":`, currentCharacterSettings);
+    } else if (extensionSettings.moduleSettings.enableCharacterMemory) {
+        console.log('STChatModelTemp: Character memory enabled but no character name available');
     }
 
     // Load chat settings from chat metadata only if enabled and chat exists
     if (extensionSettings.moduleSettings.enableChatMemory && context.chatId && chat_metadata) {
         currentChatSettings = chat_metadata.STChatModelTemp || null;
         console.log('STChatModelTemp: Loaded chat settings:', currentChatSettings);
+    } else if (extensionSettings.moduleSettings.enableChatMemory) {
+        console.log('STChatModelTemp: Chat memory enabled but no chat context available');
     }
 
     console.log('STChatModelTemp: Cached settings updated', {
         characterName: characterName,
         chatId: context.chatId,
         hasCharacterSettings: !!currentCharacterSettings,
-        hasChatSettings: !!currentChatSettings
+        hasChatSettings: !!currentChatSettings,
+        characterMemoryEnabled: extensionSettings.moduleSettings.enableCharacterMemory,
+        chatMemoryEnabled: extensionSettings.moduleSettings.enableChatMemory
     });
 }
 
