@@ -1,7 +1,5 @@
-import { eventSource, event_types } from '../../../../script.js';
-import { extension_settings } from '../../../extensions.js';
-import { saveSettingsDebounced, chat_metadata } from '../../../../script.js';
-import { saveMetadataDebounced } from '../../../extensions.js';
+import { eventSource, event_types, saveSettingsDebounced, chat_metadata, name2, systemUserName, neutralCharacterName } from '../../../../script.js';
+import { extension_settings, saveMetadataDebounced, getContext } from '../../../extensions.js';
 import { Popup, POPUP_TYPE, POPUP_RESULT } from '../../../popup.js';
 import { lodash, moment, Handlebars, DOMPurify, morphdom } from '../../../../lib.js';
 
@@ -64,8 +62,37 @@ let isExtensionEnabled = false;
 // Cache for the current popup instance to allow content refresh
 let currentPopupInstance = null;
 
+function getCharacterNameForSettings() {
+    // Primary: Use name2 variable from script.js
+    let rawCharacterName = name2;
+    let source = 'name2';
+    
+    // Fallback: Use chat_metadata.character_name if name2 is not available
+    if (!rawCharacterName || rawCharacterName === systemUserName || rawCharacterName === neutralCharacterName) {
+        rawCharacterName = chat_metadata?.character_name;
+        source = 'chat_metadata';
+        
+        if (!rawCharacterName) {
+            console.warn('STChatModelTemp: No character name available in name2 or chat_metadata');
+            return null;
+        }
+    }
+    
+    let characterName = String(rawCharacterName).trim();
+    
+    // Normalize unicode characters to handle special characters consistently
+    if (characterName.normalize) {
+        characterName = characterName.normalize('NFC');
+    }
+    
+    console.log(`STChatModelTemp: Raw character name from ${source}:`, rawCharacterName);
+    console.log('STChatModelTemp: Normalized character name:', characterName);
+    
+    return characterName;
+}
+
 /**
- * Safe set function using direct object access (no lodash path interpretation)
+ * Safe set function using direct object access to handle special characters in names
  */
 function safeSetCharacterSettings(characterName, settings) {
     const extensionSettings = getExtensionSettings();
@@ -81,7 +108,7 @@ function safeSetCharacterSettings(characterName, settings) {
         normalizedName = normalizedName.normalize('NFC');
     }
     
-    // Use direct object assignment - no path interpretation issues
+    // Use direct object assignment to handle special characters properly
     if (!extensionSettings.characterSettings) {
         extensionSettings.characterSettings = {};
     }
@@ -195,10 +222,13 @@ function getExtensionSettings() {
 }
 
 /**
- * Get current context - simplified to only use chat_metadata
+ * Get current context - leverages ST's context but augments with extension-specific needs
  */
-function getCurrentContext() {
+function getCurrentExtensionContext() {
     try {
+        // Get base context from SillyTavern's context system
+        const baseContext = getContext();
+        
         let characterName = null;
         let chatId = null;
         let chatName = null;
@@ -213,8 +243,11 @@ function getCurrentContext() {
             }
         }
 
-        // Get chat information
-        if (typeof window.getCurrentChatId === 'function') {
+        // Get chat information from base context or fallback methods
+        if (baseContext?.chatId) {
+            chatId = baseContext.chatId;
+            chatName = chatId;
+        } else if (typeof window.getCurrentChatId === 'function') {
             chatId = window.getCurrentChatId();
             chatName = chatId;
         }
@@ -222,7 +255,7 @@ function getCurrentContext() {
         const result = {
             characterName,
             chatId,
-            groupId: window.selected_group || null,
+            groupId: baseContext?.groupId || window.selected_group || null,
             chatName
         };
 
@@ -238,32 +271,6 @@ function getCurrentContext() {
             chatName: null
         };
     }
-}
-
-/**
- * Get character name for settings - only from chat_metadata
- */
-function getCharacterNameForSettings() {
-    // Try multiple sources for character name
-    const rawCharacterName = name2 || 
-                            characters[this_chid]?.name || 
-                            characters[this_chid]?.avatar;
-    
-    if (!rawCharacterName) {
-        console.warn('STChatModelTemp: No character name available');
-        return null;
-    }
-    
-    let characterName = String(rawCharacterName).trim();
-    
-    if (characterName.normalize) {
-        characterName = characterName.normalize('NFC');
-    }
-    
-    console.log('STChatModelTemp: Raw character name:', rawCharacterName);
-    console.log('STChatModelTemp: Normalized character name:', characterName);
-    
-    return characterName;
 }
 
 /**
@@ -462,7 +469,8 @@ function createUI() {
 }
 
 /**
- * Show the popup using ST's popup system
+ * Show the popup using ST's popup system with proper button handling
+ * Popup will NOT close prematurely and only closes when user clicks close
  */
 async function showPopup() {
     const content = getPopupContent();
@@ -472,35 +480,32 @@ async function showPopup() {
     const customButtons = [
         {
             text: '💾 Update Settings',
-            result: null,
+            result: null, // null means don't close popup
             classes: ['menu_button'],
-            action: async (popup) => {
+            action: async () => {
                 await saveCurrentSettings();
                 refreshPopupContent();
-                // Return false to prevent the popup from closing
-                return false;
+                // Don't return anything to prevent popup from closing
             }
         },
         {
             text: '🗑️ Clear Character Settings',
-            result: null,
+            result: null, // null means don't close popup
             classes: ['menu_button'],
-            action: async (popup) => {
+            action: async () => {
                 await clearCharacterSettings();
                 refreshPopupContent();
-                // Return false to prevent the popup from closing
-                return false;
+                // Don't return anything to prevent popup from closing
             }
         },
         {
             text: '🗑️ Clear Chat Settings',
-            result: null,
+            result: null, // null means don't close popup
             classes: ['menu_button'],
-            action: async (popup) => {
+            action: async () => {
                 await clearChatSettings();
                 refreshPopupContent();
-                // Return false to prevent the popup from closing
-                return false;
+                // Don't return anything to prevent popup from closing
             }
         }
     ];
@@ -509,7 +514,7 @@ async function showPopup() {
         wide: true,
         customButtons: customButtons,
         cancelButton: 'Close',
-        okButton: false,
+        okButton: false, // No OK button to prevent accidental closing
         onClose: handlePopupClose
     };
 
@@ -524,7 +529,7 @@ async function showPopup() {
 }
 
 /**
- * Handle popup close event to save settings
+ * Handle popup close event to save settings properly
  */
 function handlePopupClose(popup) {
     try {
@@ -560,7 +565,8 @@ function handlePopupClose(popup) {
 }
 
 /**
- * SIMPLIFIED: Event listener setup with only 2 reliable events
+ * Event listener setup with proper auto-save event handling
+ * Auto-save only happens during specific generation events
  */
 function setupEventListeners() {
     // Menu item click handler
@@ -568,7 +574,7 @@ function setupEventListeners() {
         showPopup();
     });
 
-    // Simplified SillyTavern event handlers - only 2 events
+    // SillyTavern event handlers - only essential events
     function registerSillyTavernEvents() {
         try {
             if (!eventSource || !event_types) {
@@ -577,7 +583,7 @@ function setupEventListeners() {
                 return;
             }
 
-            console.log('STChatModelTemp: Setting up simplified event listeners');
+            console.log('STChatModelTemp: Setting up event listeners');
 
             // Character and chat change events
             eventSource.on(event_types.CHARACTER_SELECTED, onCharacterChanged);
@@ -590,36 +596,44 @@ function setupEventListeners() {
                 }, 500);
             });
             
-            // SIMPLIFIED AUTO-SAVE: Only 2 events
+            // Auto-save only on specific generation events as required
             const extensionSettings = getExtensionSettings();
             
             if (extensionSettings.moduleSettings.autoSave) {
-                console.log('STChatModelTemp: Setting up simplified auto-save (2 events only)');
+                console.log('STChatModelTemp: Setting up auto-save for generation events only');
                 
-                // Primary event - GENERATION_STARTED
+                // Primary auto-save event - when generation actually starts
                 if (event_types.GENERATION_STARTED) {
                     eventSource.on(event_types.GENERATION_STARTED, () => {
-                        console.log('STChatModelTemp: GENERATION_STARTED event detected');
+                        console.log('STChatModelTemp: GENERATION_STARTED - auto-save triggered');
                         if (getExtensionSettings().moduleSettings.autoSave && isExtensionEnabled) {
-                            console.log('STChatModelTemp: Triggering auto-save from GENERATION_STARTED...');
                             debouncedModelSettingsChanged();
                         }
                     });
                 }
                 
-                // Secondary event - CHAT_COMPLETION_PROMPT_READY (more reliable)
+                // Secondary auto-save event - when prompt is ready for completion
                 if (event_types.CHAT_COMPLETION_PROMPT_READY) {
                     eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, () => {
-                        console.log('STChatModelTemp: CHAT_COMPLETION_PROMPT_READY event detected');
+                        console.log('STChatModelTemp: CHAT_COMPLETION_PROMPT_READY - auto-save triggered');
                         if (getExtensionSettings().moduleSettings.autoSave && isExtensionEnabled) {
-                            console.log('STChatModelTemp: Triggering auto-save from CHAT_COMPLETION_PROMPT_READY...');
+                            debouncedModelSettingsChanged();
+                        }
+                    });
+                }
+                
+                // Tertiary auto-save event - when message is received
+                if (event_types.MESSAGE_RECEIVED) {
+                    eventSource.on(event_types.MESSAGE_RECEIVED, () => {
+                        console.log('STChatModelTemp: MESSAGE_RECEIVED - auto-save triggered');
+                        if (getExtensionSettings().moduleSettings.autoSave && isExtensionEnabled) {
                             debouncedModelSettingsChanged();
                         }
                     });
                 }
             }
             
-            console.log('STChatModelTemp: Simplified event listeners registered successfully');
+            console.log('STChatModelTemp: Event listeners registered successfully');
         } catch (e) {
             console.warn('STChatModelTemp: Could not bind to SillyTavern events:', e);
             setTimeout(registerSillyTavernEvents, 2000);
@@ -692,7 +706,7 @@ function onCharacterChanged() {
         return;
     }
 
-    const context = getCurrentContext();
+    const context = getCurrentExtensionContext();
     if (!context.characterName) {
         console.log('STChatModelTemp: Character change ignored - no character name in chat_metadata');
         return;
@@ -742,17 +756,17 @@ function onModelSettingsChanged() {
 }
 
 /**
- * Update cached settings for current character/chat - using direct object access
+ * Update cached settings using only chat_metadata for character name
  */
 function updateCachedSettings() {
     const extensionSettings = getExtensionSettings();
-    const context = getCurrentContext();
+    const context = getCurrentExtensionContext();
 
     // Always clear cached settings first to avoid stale data
     currentCharacterSettings = null;
     currentChatSettings = null;
 
-    // Get normalized character name from chat_metadata ONLY
+    // Get normalized character name from name2 (primary) or chat_metadata (fallback)
     const characterName = getCharacterNameForSettings();
 
     // Load character settings only if enabled and character exists
@@ -760,7 +774,7 @@ function updateCachedSettings() {
         currentCharacterSettings = safeGetCharacterSettings(characterName);
         console.log(`STChatModelTemp: Loaded character settings for "${characterName}":`, currentCharacterSettings);
     } else if (extensionSettings.moduleSettings.enableCharacterMemory) {
-        console.log('STChatModelTemp: Character memory enabled but no character name available');
+        console.log('STChatModelTemp: Character memory enabled but no character name found');
     }
 
     // Load chat settings from chat metadata only if enabled and chat exists
@@ -883,7 +897,8 @@ function applySettings() {
 }
 
 /**
- * Save current model and temperature settings - using direct object access
+ * Save current model and temperature settings - using chat_metadata for character name
+ * Settings must save and display properly in the popup
  */
 async function saveCurrentSettings() {
     if (!isExtensionEnabled) {
@@ -892,7 +907,7 @@ async function saveCurrentSettings() {
     }
 
     const extensionSettings = getExtensionSettings();
-    const context = getCurrentContext();
+    const context = getCurrentExtensionContext();
     const selectors = getApiSelectors();
     const apiInfo = getCurrentApiInfo();
     
@@ -914,7 +929,7 @@ async function saveCurrentSettings() {
         savedAt: moment().toISOString()
     };
 
-    // Save character settings using direct access
+    // Save character settings using chat_metadata character name
     const characterName = getCharacterNameForSettings();
     if (extensionSettings.moduleSettings.enableCharacterMemory && characterName) {
         const success = safeSetCharacterSettings(characterName, settingsData);
@@ -956,7 +971,7 @@ async function saveCurrentSettings() {
 }
 
 /**
- * Clear character-specific settings - using direct object access
+ * Clear character-specific settings - using chat_metadata for character name
  */
 async function clearCharacterSettings() {
     const extensionSettings = getExtensionSettings();
@@ -981,7 +996,7 @@ async function clearCharacterSettings() {
  */
 async function clearChatSettings() {
     const extensionSettings = getExtensionSettings();
-    const context = getCurrentContext();
+    const context = getCurrentExtensionContext();
     if (!context.chatId || !chat_metadata) return;
 
     delete chat_metadata.STChatModelTemp;
@@ -1030,19 +1045,6 @@ function migrateOldData() {
                 }
             }
             
-            // Try to find character by old key format for legacy support
-            if (!window.characters?.find(char => char.name === characterName)) {
-                const character = window.characters?.find(char => 
-                    char.avatar === characterKey || 
-                    String(window.characters.indexOf(char)) === characterKey
-                );
-                
-                if (character && character.name) {
-                    characterName = character.name;
-                    console.log(`STChatModelTemp: Found character name "${characterName}" for old key "${characterKey}"`);
-                }
-            }
-            
             // Store with the final character name (no escaping needed)
             newCharacterSettings[characterName] = settings;
             migratedCount++;
@@ -1074,7 +1076,7 @@ let hasInitialized = false;
 async function init() {
     if (hasInitialized) return;
     hasInitialized = true;
-    console.log('STChatModelTemp: Initializing optimized version with direct object access');
+    console.log('STChatModelTemp: Initializing');
     
     // Wait for SillyTavern to be ready
     let attempts = 0;
@@ -1099,7 +1101,7 @@ async function init() {
     // Create UI elements
     createUI();
 
-    // Set up simplified event listeners
+    // Set up event listeners
     setupEventListeners();
 
     // Check initial API compatibility
@@ -1111,7 +1113,7 @@ async function init() {
         console.log('STChatModelTemp: Initial context loaded');
     }, 1000);
 
-    console.log('STChatModelTemp: Optimized extension loaded successfully with direct object access');
+    console.log('STChatModelTemp: Extension loaded successfully');
 }
 
 // Initialize when the extension loads
@@ -1123,5 +1125,5 @@ $(document).ready(() => {
     // Fallback initialization
     setTimeout(init, 1500);
     
-    console.log('STChatModelTemp: Ready to initialize (optimized with direct object access)');
+    console.log('STChatModelTemp: Ready to initialize with chat_metadata support');
 });
