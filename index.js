@@ -461,7 +461,7 @@ function refreshPopupContent() {
  */
 function createUI() {
     const menuItem = $(`
-        <div class="list-group-item flex alignItemsCenter gap5px" id="stcmt-menu-item">
+        <div id="stcmt-menu-item" class="extension_container">
             <i class="fa-solid fa-brain"></i>
             <span>Model Memory</span>
         </div>
