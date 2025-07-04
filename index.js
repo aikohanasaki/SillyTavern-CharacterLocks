@@ -486,7 +486,6 @@ async function showPopup() {
     const customButtons = [
         {
             text: '💾 Update Both',
-            result: null,
             classes: ['menu_button'],
             action: async () => {
                 await saveCurrentSettings(true, true);
@@ -495,7 +494,6 @@ async function showPopup() {
         },
         {
             text: '👤 Update Character',
-            result: null,
             classes: ['menu_button'],
             action: async () => {
                 await saveCurrentSettings(true, false);
@@ -504,7 +502,6 @@ async function showPopup() {
         },
         {
             text: '💬 Update Chat',
-            result: null,
             classes: ['menu_button'],
             action: async () => {
                 await saveCurrentSettings(false, true);
@@ -513,7 +510,6 @@ async function showPopup() {
         },
         {
             text: '🗑️ Clear Character',
-            result: null,
             classes: ['menu_button'],
             action: async () => {
                 await clearCharacterSettings();
@@ -522,7 +518,6 @@ async function showPopup() {
         },
         {
             text: '🗑️ Clear Chat',
-            result: null,
             classes: ['menu_button'],
             action: async () => {
                 await clearChatSettings();
@@ -531,7 +526,6 @@ async function showPopup() {
         },
         {
             text: '🗑️ Clear All',
-            result: null,
             classes: ['menu_button'],
             action: async () => {
                 await clearAllSettings();
