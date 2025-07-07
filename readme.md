@@ -17,6 +17,10 @@ You can use both at the same time, and decide which one takes priority when they
 
 First, open the extension by clicking "Model Memory" in your Extensions menu. You'll see some checkboxes:
 
+**NEW: Notification options:**
+- **Show auto-save notifications**: Get a small pop-up confirming when your settings have been auto-saved.
+- **Show other notifications**: Get pop-ups for other events, like when settings are applied, cleared, or if there's an API mismatch.
+
 **Memory options:**
 - Turn on "Remember per character" if you want different characters to have their own preferred settings
 - Turn on "Remember per chat" if you want individual conversations to remember their own settings
@@ -27,7 +31,7 @@ If enabled, STChatModelTemp will auto-save whenever messages are generated. Choo
 - Auto-save character settings
 - Auto-save chat settings
 - Both
-- Neither (manual save only)
+- **DEFAULT**: Neither (manual save only)
 
 **Priority setting:**
 - Choose "Prefer character settings over chat" if you want character preferences to take priority
@@ -67,7 +71,7 @@ Use both! Set up character defaults, then override them for specific conversatio
 
 ## Technical Requirements/Details
 
-**Works with these APIs:** OpenAI, Claude, OpenRouter, AI21, Scale, Google, Mistral AI, Custom, Cohere, Perplexity, Groq, 01.AI, NanoGPT, DeepSeek, BlockEntropy
+**Works with these APIs:** OpenAI, Claude, WindowAI, OpenRouter, AI21, Scale, Google (Makersuite), Mistral AI, Custom, Cohere, Perplexity, Groq, 01.AI, NanoGPT, DeepSeek, BlockEntropy
 
 **What you need:** Your main API has to be set to "Chat Completion" mode
 
