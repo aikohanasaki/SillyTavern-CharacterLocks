@@ -468,18 +468,15 @@ function refreshPopupContent() {
  */
 function createUI() {
     const menuItem = $(`
-        <div id="stcmt-menu-item" class="extension_container">
-            <i class="fa-solid fa-brain"></i>
-            <span>Model Memory</span>
+        <div id="stcmt-menu-item-container" class="extension_container interactable" tabindex="0">
+            <div id="stcmt-menu-item" class="list-group-item flex-container flexGap5 interactable" tabindex="0">
+                <div class="fa-fw fa-solid fa-brain extensionsMenuExtensionButton"></div>
+                <span>Model/Temp Settings</span>
+            </div>
         </div>
     `);
 
-    let extensionsList = $(SELECTORS.extensionsMenu);
-    if (extensionsList.length === 0) {
-        extensionsList = $('<div class="list-group"></div>');
-        $('#extensionsMenu').append(extensionsList);
-    }
-    extensionsList.append(menuItem);
+    $('#extensionsMenu').append(menuItem);
 }
 
 /**
