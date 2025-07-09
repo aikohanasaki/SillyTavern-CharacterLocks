@@ -3,14 +3,14 @@ import { extension_settings, saveMetadataDebounced, getContext } from '../../../
 import { Popup, POPUP_TYPE, POPUP_RESULT } from '../../../popup.js';
 import { lodash, moment, Handlebars, DOMPurify, morphdom } from '../../../../lib.js';
 
-const MODULE_NAME = 'STChatModelTemp';
+const MODULE_NAME = 'STMTL';
 const SAVE_DEBOUNCE_TIME = 1000;
 
 // Centralized DOM selectors - single source of truth
 const SELECTORS = {
     mainApi: '#main_api',
     completionSource: '#chat_completion_source',
-    menuItem: '#stcmt-menu-item',
+    menuItem: '#stmtl-menu-item',
     extensionsMenu: '#extensionsMenu .list-group',
     // Model selectors
     modelOpenai: '#model_openai_select',
@@ -75,7 +75,7 @@ function getCharacterNameForSettings() {
         source = 'chat_metadata';
 
         if (!rawCharacterName) {
-            console.warn('STChatModelTemp: No character name available in name2 or chat_metadata');
+            console.warn('STMTL: No character name available in name2 or chat_metadata');
             return null;
         }
     }
@@ -87,8 +87,8 @@ function getCharacterNameForSettings() {
         characterName = characterName.normalize('NFC');
     }
 
-    console.log(`STChatModelTemp: Raw character name from ${source}:`, rawCharacterName);
-    console.log('STChatModelTemp: Normalized character name:', characterName);
+    console.log(`STMTL: Raw character name from ${source}:`, rawCharacterName);
+    console.log('STMTL: Normalized character name:', characterName);
 
     return characterName;
 }
@@ -100,7 +100,7 @@ function safeSetCharacterSettings(characterName, settings) {
     const extensionSettings = getExtensionSettings();
 
     if (!characterName) {
-        console.warn('STChatModelTemp: Cannot save settings - invalid character name');
+        console.warn('STMTL: Cannot save settings - invalid character name');
         return false;
     }
 
@@ -116,8 +116,8 @@ function safeSetCharacterSettings(characterName, settings) {
     }
 
     extensionSettings.characterSettings[normalizedName] = settings;
-    console.log(`STChatModelTemp: Saved character settings for normalized name "${normalizedName}"`);
-    console.log('STChatModelTemp: Settings saved:', settings);
+    console.log(`STMTL: Saved character settings for normalized name "${normalizedName}"`);
+    console.log('STMTL: Settings saved:', settings);
     return true;
 }
 
@@ -139,13 +139,13 @@ function safeGetCharacterSettings(characterName) {
 
     const settings = extensionSettings.characterSettings[normalizedName];
     if (settings) {
-        console.log(`STChatModelTemp: Retrieved character settings for normalized name "${normalizedName}"`);
-        console.log('STChatModelTemp: Settings retrieved:', settings);
+        console.log(`STMTL: Retrieved character settings for normalized name "${normalizedName}"`);
+        console.log('STMTL: Settings retrieved:', settings);
     } else {
-        console.log(`STChatModelTemp: No settings found for normalized name "${normalizedName}"`);
+        console.log(`STMTL: No settings found for normalized name "${normalizedName}"`);
         // Debug: show all available character keys
         const availableKeys = Object.keys(extensionSettings.characterSettings || {});
-        console.log('STChatModelTemp: Available character keys:', availableKeys);
+        console.log('STMTL: Available character keys:', availableKeys);
     }
     return settings || null;
 }
@@ -168,17 +168,17 @@ function safeDeleteCharacterSettings(characterName) {
 
     if (extensionSettings.characterSettings[normalizedName]) {
         delete extensionSettings.characterSettings[normalizedName];
-        console.log(`STChatModelTemp: Deleted character settings for normalized name "${normalizedName}"`);
+        console.log(`STMTL: Deleted character settings for normalized name "${normalizedName}"`);
         return true;
     }
 
-    console.log(`STChatModelTemp: No settings to delete for normalized name "${normalizedName}"`);
+    console.log(`STMTL: No settings to delete for normalized name "${normalizedName}"`);
     return false;
 }
 
 // Enhanced debounced function with logging
 const debouncedModelSettingsChanged = lodash.debounce(function() {
-    console.log('STChatModelTemp: Debounced save triggered');
+    console.log('STMTL: Debounced save triggered');
     onModelSettingsChanged();
 }, SAVE_DEBOUNCE_TIME);
 
@@ -216,11 +216,11 @@ const popupTemplate = Handlebars.compile(`
  * Get extension settings from SillyTavern's settings system
  */
 function getExtensionSettings() {
-    if (!extension_settings.STChatModelTemp) {
-        extension_settings.STChatModelTemp = lodash.cloneDeep(defaultSettings);
-        console.log('STChatModelTemp: Created new settings with defaults');
+    if (!extension_settings.STMTL) {
+        extension_settings.STMTL = lodash.cloneDeep(defaultSettings);
+        console.log('STMTL: Created new settings with defaults');
     }
-    return extension_settings.STChatModelTemp;
+    return extension_settings.STMTL;
 }
 
 /**
@@ -261,11 +261,11 @@ function getCurrentExtensionContext() {
             chatName
         };
 
-        console.log('STChatModelTemp: Context resolved (chat_metadata only, normalized):', result);
+        console.log('STMTL: Context resolved (chat_metadata only, normalized):', result);
         return result;
 
     } catch (e) {
-        console.warn('STChatModelTemp: Error getting context:', e);
+        console.warn('STMTL: Error getting context:', e);
         return {
             characterName: null,
             chatId: null,
@@ -291,7 +291,7 @@ function checkApiCompatibility() {
             isCompatible = mainApi === 'openai' && lodash.includes(SUPPORTED_COMPLETION_SOURCES, completionSource);
         }
     } catch (e) {
-        console.warn('STChatModelTemp: Error checking API compatibility:', e);
+        console.warn('STMTL: Error checking API compatibility:', e);
         const mainApi = $(SELECTORS.mainApi).val();
         const completionSource = $(SELECTORS.completionSource).val();
         isCompatible = mainApi === 'openai' && lodash.includes(SUPPORTED_COMPLETION_SOURCES, completionSource);
@@ -303,9 +303,9 @@ function checkApiCompatibility() {
         const extensionSettings = getExtensionSettings();
         if (extensionSettings.moduleSettings.showOtherNotifications) {
             if (isCompatible) {
-                toastr.info('STChatModelTemp extension enabled for Chat Completion API', 'STChatModelTemp');
+                toastr.info('STMTL extension enabled for Chat Completion API', 'STMTL');
             } else {
-                toastr.warning('STChatModelTemp requires Chat Completion API', 'STChatModelTemp');
+                toastr.warning('STMTL requires Chat Completion API', 'STMTL');
             }
         }
     }
@@ -336,7 +336,7 @@ function getCurrentApiInfo() {
 
         return { api, model, completionSource };
     } catch (e) {
-        console.warn('STChatModelTemp: Error getting API info:', e);
+        console.warn('STMTL: Error getting API info:', e);
         return {
             api: $(SELECTORS.mainApi).val() || 'unknown',
             model: 'unknown',
@@ -378,43 +378,43 @@ function getPopupContent() {
         chatInfo: formatSettingsInfo(currentChatSettings),
         checkboxes: [
             {
-                id: 'stcmt-enable-character',
+                id: 'stmtl-enable-character',
                 label: 'Remember per character',
                 checked: settings.moduleSettings.enableCharacterMemory,
                 requiresApi: true
             },
             {
-                id: 'stcmt-enable-chat',
+                id: 'stmtl-enable-chat',
                 label: 'Remember per chat',
                 checked: settings.moduleSettings.enableChatMemory,
                 requiresApi: true
             },
             {
-                id: 'stcmt-prefer-character',
+                id: 'stmtl-prefer-character',
                 label: 'Prefer character settings over chat',
                 checked: settings.moduleSettings.preferCharacterOverChat,
                 requiresApi: true
             },
             {
-                id: 'stcmt-auto-save-character',
+                id: 'stmtl-auto-save-character',
                 label: 'Auto-save character settings',
                 checked: settings.moduleSettings.autoSaveCharacter,
                 requiresApi: true
             },
             {
-                id: 'stcmt-auto-save-chat',
+                id: 'stmtl-auto-save-chat',
                 label: 'Auto-save chat settings',
                 checked: settings.moduleSettings.autoSaveChat,
                 requiresApi: true
             },
             {
-                id: 'stcmt-show-autosave-notifications',
+                id: 'stmtl-show-autosave-notifications',
                 label: 'Show auto-save notifications',
                 checked: settings.moduleSettings.showAutoSaveNotifications,
                 requiresApi: false
             },
             {
-                id: 'stcmt-show-other-notifications',
+                id: 'stmtl-show-other-notifications',
                 label: 'Show other notifications',
                 checked: settings.moduleSettings.showOtherNotifications,
                 requiresApi: false
@@ -430,7 +430,7 @@ function getPopupContent() {
  */
 function refreshPopupContent() {
     if (!currentPopupInstance || !currentPopupInstance.dlg.hasAttribute('open')) {
-        console.warn('STChatModelTemp: Cannot refresh popup - no popup currently open');
+        console.warn('STMTL: Cannot refresh popup - no popup currently open');
         return;
     }
 
@@ -455,9 +455,9 @@ function refreshPopupContent() {
             }
         });
 
-        console.log('STChatModelTemp: Popup content refreshed using morphdom');
+        console.log('STMTL: Popup content refreshed using morphdom');
     } catch (error) {
-        console.error('STChatModelTemp: Error refreshing popup content:', error);
+        console.error('STMTL: Error refreshing popup content:', error);
         currentPopupInstance.completeCancelled();
         setTimeout(() => showPopup(), 100);
     }
@@ -468,8 +468,8 @@ function refreshPopupContent() {
  */
 function createUI() {
     const menuItem = $(`
-        <div id="stcmt-menu-item-container" class="extension_container interactable" tabindex="0">
-            <div id="stcmt-menu-item" class="list-group-item flex-container flexGap5 interactable" tabindex="0">
+        <div id="stmtl-menu-item-container" class="extension_container interactable" tabindex="0">
+            <div id="stmtl-menu-item" class="list-group-item flex-container flexGap5 interactable" tabindex="0">
                 <div class="fa-fw fa-solid fa-brain extensionsMenuExtensionButton"></div>
                 <span>Model/Temp Settings</span>
             </div>
@@ -551,7 +551,7 @@ async function showPopup() {
         await currentPopupInstance.show();
         currentPopupInstance = null;
     } catch (error) {
-        console.error('STChatModelTemp: Error showing popup:', error);
+        console.error('STMTL: Error showing popup:', error);
         currentPopupInstance = null;
     }
 }
@@ -565,13 +565,13 @@ function handlePopupClose(popup) {
         const settings = getExtensionSettings();
 
         const checkboxMappings = {
-            'stcmt-enable-character': 'enableCharacterMemory',
-            'stcmt-enable-chat': 'enableChatMemory',
-            'stcmt-prefer-character': 'preferCharacterOverChat',
-            'stcmt-auto-save-character': 'autoSaveCharacter',
-            'stcmt-auto-save-chat': 'autoSaveChat',
-            'stcmt-show-autosave-notifications': 'showAutoSaveNotifications',
-            'stcmt-show-other-notifications': 'showOtherNotifications'
+            'stmtl-enable-character': 'enableCharacterMemory',
+            'stmtl-enable-chat': 'enableChatMemory',
+            'stmtl-prefer-character': 'preferCharacterOverChat',
+            'stmtl-auto-save-character': 'autoSaveCharacter',
+            'stmtl-auto-save-chat': 'autoSaveChat',
+            'stmtl-show-autosave-notifications': 'showAutoSaveNotifications',
+            'stmtl-show-other-notifications': 'showOtherNotifications'
         };
 
         const newValues = lodash.mapValues(checkboxMappings, (settingKey, checkboxId) => {
@@ -587,10 +587,10 @@ function handlePopupClose(popup) {
         if (changed) {
             lodash.merge(settings.moduleSettings, lodash.mapKeys(newValues, (value, key) => checkboxMappings[key]));
             saveSettingsDebounced();
-            console.log('STChatModelTemp: Settings updated from popup');
+            console.log('STMTL: Settings updated from popup');
         }
     } catch (error) {
-        console.error('STChatModelTemp: Error handling popup close:', error);
+        console.error('STMTL: Error handling popup close:', error);
     }
 }
 
@@ -608,19 +608,19 @@ function setupEventListeners() {
     function registerSillyTavernEvents() {
         try {
             if (!eventSource || !event_types) {
-                console.warn('STChatModelTemp: eventSource or event_types not available, retrying...');
+                console.warn('STMTL: eventSource or event_types not available, retrying...');
                 setTimeout(registerSillyTavernEvents, 1000);
                 return;
             }
 
-            console.log('STChatModelTemp: Setting up event listeners');
+            console.log('STMTL: Setting up event listeners');
 
             // Character and chat change events
             eventSource.on(event_types.CHARACTER_SELECTED, onCharacterChanged);
             eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
 
             eventSource.on(event_types.CHAT_LOADED, () => {
-                console.log('STChatModelTemp: Chat loaded event');
+                console.log('STMTL: Chat loaded event');
                 setTimeout(() => {
                     updateCachedSettings();
                 }, 500);
@@ -630,7 +630,7 @@ function setupEventListeners() {
             const setupAutoSaveEvent = (eventType, eventName) => {
                 if (eventType) {
                     eventSource.on(eventType, () => {
-                        console.log(`STChatModelTemp: ${eventName} - checking auto-save settings`);
+                        console.log(`STMTL: ${eventName} - checking auto-save settings`);
                         const extensionSettings = getExtensionSettings();
                         const shouldAutoSave = extensionSettings.moduleSettings.autoSaveCharacter ||
                                              extensionSettings.moduleSettings.autoSaveChat;
@@ -647,9 +647,9 @@ function setupEventListeners() {
             setupAutoSaveEvent(event_types.CHAT_COMPLETION_PROMPT_READY, 'CHAT_COMPLETION_PROMPT_READY');
             setupAutoSaveEvent(event_types.MESSAGE_RECEIVED, 'MESSAGE_RECEIVED');
 
-            console.log('STChatModelTemp: Event listeners registered successfully');
+            console.log('STMTL: Event listeners registered successfully');
         } catch (e) {
-            console.warn('STChatModelTemp: Could not bind to SillyTavern events:', e);
+            console.warn('STMTL: Could not bind to SillyTavern events:', e);
             setTimeout(registerSillyTavernEvents, 2000);
         }
     }
@@ -658,7 +658,7 @@ function setupEventListeners() {
 
     // API change handlers
     $(document).on('change', `${SELECTORS.mainApi}, ${SELECTORS.completionSource}`, function() {
-        console.log('STChatModelTemp: API change detected');
+        console.log('STMTL: API change detected');
         checkApiCompatibility();
         if (isExtensionEnabled) {
             setTimeout(() => {
@@ -676,7 +676,7 @@ function setupEventListeners() {
     ])).join(', ');
 
     $(document).on('change input', modelSelectors, function(e) {
-        console.log('STChatModelTemp: Model/temp setting changed:', e.target.id);
+        console.log('STMTL: Model/temp setting changed:', e.target.id);
         debouncedModelSettingsChanged();
     });
 }
@@ -716,22 +716,22 @@ function getApiSelectors() {
 function onCharacterChanged() {
     const extensionSettings = getExtensionSettings();
     if (!isExtensionEnabled || (!extensionSettings.moduleSettings.enableCharacterMemory && !extensionSettings.moduleSettings.enableChatMemory)) {
-        console.log('STChatModelTemp: Character change ignored - extension disabled or no memory features enabled');
+        console.log('STMTL: Character change ignored - extension disabled or no memory features enabled');
         return;
     }
 
     const context = getCurrentExtensionContext();
     if (!context.characterName) {
-        console.log('STChatModelTemp: Character change ignored - no character name in chat_metadata');
+        console.log('STMTL: Character change ignored - no character name in chat_metadata');
         return;
     }
 
-    console.log('STChatModelTemp: Character changed to:', context.characterName);
+    console.log('STMTL: Character changed to:', context.characterName);
 
     updateCachedSettings();
     applySettings();
 
-    console.log('STChatModelTemp: Character change handling complete');
+    console.log('STMTL: Character change handling complete');
 }
 
 /**
@@ -749,15 +749,15 @@ function onChatChanged() {
  * Handle model settings change
  */
 function onModelSettingsChanged() {
-    console.log('STChatModelTemp: onModelSettingsChanged() called');
+    console.log('STMTL: onModelSettingsChanged() called');
 
     const extensionSettings = getExtensionSettings();
-    console.log('STChatModelTemp: Character auto-save enabled:', extensionSettings.moduleSettings.autoSaveCharacter);
-    console.log('STChatModelTemp: Chat auto-save enabled:', extensionSettings.moduleSettings.autoSaveChat);
-    console.log('STChatModelTemp: Extension enabled:', isExtensionEnabled);
+    console.log('STMTL: Character auto-save enabled:', extensionSettings.moduleSettings.autoSaveCharacter);
+    console.log('STMTL: Chat auto-save enabled:', extensionSettings.moduleSettings.autoSaveChat);
+    console.log('STMTL: Extension enabled:', isExtensionEnabled);
 
     if (!isExtensionEnabled) {
-        console.log('STChatModelTemp: Skipping save - extension not enabled');
+        console.log('STMTL: Skipping save - extension not enabled');
         return;
     }
 
@@ -766,11 +766,11 @@ function onModelSettingsChanged() {
     const shouldAutoSaveChat = extensionSettings.moduleSettings.autoSaveChat;
 
     if (!shouldAutoSaveCharacter && !shouldAutoSaveChat) {
-        console.log('STChatModelTemp: Skipping save - both auto-saves disabled');
+        console.log('STMTL: Skipping save - both auto-saves disabled');
         return;
     }
 
-    console.log('STChatModelTemp: Proceeding with auto-save...');
+    console.log('STMTL: Proceeding with auto-save...');
 
     // Save only what's enabled for autosave, and mark as an auto-save event
     saveCurrentSettings(shouldAutoSaveCharacter, shouldAutoSaveChat, true);
@@ -793,20 +793,20 @@ function updateCachedSettings() {
     // Load character settings only if enabled and character exists
     if (extensionSettings.moduleSettings.enableCharacterMemory && characterName) {
         currentCharacterSettings = safeGetCharacterSettings(characterName);
-        console.log(`STChatModelTemp: Loaded character settings for "${characterName}":`, currentCharacterSettings);
+        console.log(`STMTL: Loaded character settings for "${characterName}":`, currentCharacterSettings);
     } else if (extensionSettings.moduleSettings.enableCharacterMemory) {
-        console.log('STChatModelTemp: Character memory enabled but no character name found');
+        console.log('STMTL: Character memory enabled but no character name found');
     }
 
     // Load chat settings from chat metadata only if enabled and chat exists
     if (extensionSettings.moduleSettings.enableChatMemory && context.chatId && chat_metadata) {
-        currentChatSettings = chat_metadata.STChatModelTemp || null;
-        console.log('STChatModelTemp: Loaded chat settings:', currentChatSettings);
+        currentChatSettings = chat_metadata.STMTL || null;
+        console.log('STMTL: Loaded chat settings:', currentChatSettings);
     } else if (extensionSettings.moduleSettings.enableChatMemory) {
-        console.log('STChatModelTemp: Chat memory enabled but no chat context available');
+        console.log('STMTL: Chat memory enabled but no chat context available');
     }
 
-    console.log('STChatModelTemp: Cached settings updated', {
+    console.log('STMTL: Cached settings updated', {
         characterName: characterName,
         chatId: context.chatId,
         hasCharacterSettings: !!currentCharacterSettings,
@@ -821,7 +821,7 @@ function updateCachedSettings() {
  */
 function applySettings() {
     if (!isExtensionEnabled) {
-        console.log('STChatModelTemp: Settings not applied - extension not enabled');
+        console.log('STMTL: Settings not applied - extension not enabled');
         return;
     }
 
@@ -849,14 +849,14 @@ function applySettings() {
     }
 
     if (!settingsToApply) {
-        console.log('STChatModelTemp: No settings to apply for current context');
+        console.log('STMTL: No settings to apply for current context');
         if (extensionSettings.moduleSettings.showOtherNotifications) {
-            toastr.info('No saved settings for this context. Remember to save your model/temperature preferences!', 'STChatModelTemp');
+            toastr.info('No saved settings for this context. Remember to save your model/temperature preferences!', 'STMTL');
         }
         return;
     }
 
-    console.log(`STChatModelTemp: Applying ${settingsSource} settings:`, settingsToApply);
+    console.log(`STMTL: Applying ${settingsSource} settings:`, settingsToApply);
 
     const selectors = getApiSelectors();
     const apiInfo = getCurrentApiInfo();
@@ -864,9 +864,9 @@ function applySettings() {
     // Check if the saved settings match the current completion source
     if (settingsToApply.completionSource && settingsToApply.completionSource !== apiInfo.completionSource) {
         if (extensionSettings.moduleSettings.showOtherNotifications) {
-            toastr.warning(`Saved settings for ${settingsToApply.completionSource}, current source is ${apiInfo.completionSource}`, 'STChatModelTemp');
+            toastr.warning(`Saved settings for ${settingsToApply.completionSource}, current source is ${apiInfo.completionSource}`, 'STMTL');
         }
-        console.log(`STChatModelTemp: Settings not applied - completion source mismatch (saved: ${settingsToApply.completionSource}, current: ${apiInfo.completionSource})`);
+        console.log(`STMTL: Settings not applied - completion source mismatch (saved: ${settingsToApply.completionSource}, current: ${apiInfo.completionSource})`);
         return;
     }
 
@@ -877,7 +877,7 @@ function applySettings() {
                 const currentCustomId = $(SELECTORS.customModelId).val();
                 if (currentCustomId !== settingsToApply.model) {
                     $(SELECTORS.customModelId).val(settingsToApply.model).trigger('change');
-                    console.log(`STChatModelTemp: Custom model ID changed from ${currentCustomId} to ${settingsToApply.model}`);
+                    console.log(`STMTL: Custom model ID changed from ${currentCustomId} to ${settingsToApply.model}`);
                 }
             }
 
@@ -885,7 +885,7 @@ function applySettings() {
                 const currentCustomSelect = $(SELECTORS.modelCustomSelect).val();
                 if (currentCustomSelect !== settingsToApply.model) {
                     $(SELECTORS.modelCustomSelect).val(settingsToApply.model).trigger('change');
-                    console.log(`STChatModelTemp: Custom model select changed from ${currentCustomSelect} to ${settingsToApply.model}`);
+                    console.log(`STMTL: Custom model select changed from ${currentCustomSelect} to ${settingsToApply.model}`);
                 }
             }
         } else {
@@ -893,7 +893,7 @@ function applySettings() {
                 const currentModel = $(selectors.model).val();
                 if (currentModel !== settingsToApply.model) {
                     $(selectors.model).val(settingsToApply.model).trigger('change');
-                    console.log(`STChatModelTemp: Model changed from ${currentModel} to ${settingsToApply.model}`);
+                    console.log(`STMTL: Model changed from ${currentModel} to ${settingsToApply.model}`);
                 }
             }
         }
@@ -909,15 +909,15 @@ function applySettings() {
             if ($(selectors.tempCounter).length) {
                 $(selectors.tempCounter).val(settingsToApply.temperature);
             }
-            console.log(`STChatModelTemp: Temperature changed from ${currentTemp} to ${settingsToApply.temperature}`);
+            console.log(`STMTL: Temperature changed from ${currentTemp} to ${settingsToApply.temperature}`);
         }
     }
 
     if (extensionSettings.moduleSettings.showOtherNotifications) {
-        toastr.info(`Applied ${settingsSource} settings for ${settingsToApply.completionSource}`, 'STChatModelTemp');
+        toastr.info(`Applied ${settingsSource} settings for ${settingsToApply.completionSource}`, 'STMTL');
     }
 
-    console.log(`STChatModelTemp: Successfully applied ${settingsSource} settings`);
+    console.log(`STMTL: Successfully applied ${settingsSource} settings`);
 }
 
 /**
@@ -929,7 +929,7 @@ async function saveCurrentSettings(saveCharacter = true, saveChat = true, isAuto
 
     if (!isExtensionEnabled) {
         if (extensionSettings.moduleSettings.showOtherNotifications) {
-            toastr.warning('Cannot save settings - STChatModelTemp requires Chat Completion API', 'STChatModelTemp');
+            toastr.warning('Cannot save settings - STMTL requires Chat Completion API', 'STMTL');
         }
         return;
     }
@@ -967,7 +967,7 @@ async function saveCurrentSettings(saveCharacter = true, saveChat = true, isAuto
             currentCharacterSettings = lodash.cloneDeep(settingsData);
             savedCount++;
             savedTypes.push('character');
-            console.log(`STChatModelTemp: Saved character settings for "${characterName}":`, settingsData);
+            console.log(`STMTL: Saved character settings for "${characterName}":`, settingsData);
         }
     }
 
@@ -977,12 +977,12 @@ async function saveCurrentSettings(saveCharacter = true, saveChat = true, isAuto
             window.chat_metadata = {};
         }
 
-        chat_metadata.STChatModelTemp = settingsData;
+        chat_metadata.STMTL = settingsData;
         currentChatSettings = lodash.cloneDeep(settingsData);
         savedCount++;
         savedTypes.push('chat');
 
-        console.log('STChatModelTemp: Saved chat settings:', settingsData);
+        console.log('STMTL: Saved chat settings:', settingsData);
         saveMetadataDebounced();
     }
 
@@ -995,11 +995,11 @@ async function saveCurrentSettings(saveCharacter = true, saveChat = true, isAuto
         if (showNotification) {
             const typeText = savedTypes.join(' & ');
             const messagePrefix = isAutoSave ? 'Auto-saved' : 'Saved';
-            toastr.success(`${messagePrefix} ${typeText} settings for ${apiInfo.completionSource}`, 'STChatModelTemp');
+            toastr.success(`${messagePrefix} ${typeText} settings for ${apiInfo.completionSource}`, 'STMTL');
         }
     } else {
         if (extensionSettings.moduleSettings.showOtherNotifications) {
-            toastr.warning('No settings were saved (features may be disabled)', 'STChatModelTemp');
+            toastr.warning('No settings were saved (features may be disabled)', 'STMTL');
         }
     }
 }
@@ -1025,8 +1025,8 @@ async function clearAllSettings() {
 
     // Clear chat settings
     const context = getCurrentExtensionContext();
-    if (context.chatId && chat_metadata && chat_metadata.STChatModelTemp) {
-        delete chat_metadata.STChatModelTemp;
+    if (context.chatId && chat_metadata && chat_metadata.STMTL) {
+        delete chat_metadata.STMTL;
         currentChatSettings = null;
         clearedCount++;
         clearedTypes.push('chat');
@@ -1038,11 +1038,11 @@ async function clearAllSettings() {
 
         if (extensionSettings.moduleSettings.showOtherNotifications) {
             const typeText = clearedTypes.join(' & ');
-            toastr.info(`${typeText} settings cleared`, 'STChatModelTemp');
+            toastr.info(`${typeText} settings cleared`, 'STMTL');
         }
     }
 
-    console.log(`STChatModelTemp: Cleared ${clearedCount} setting types: ${clearedTypes.join(', ')}`);
+    console.log(`STMTL: Cleared ${clearedCount} setting types: ${clearedTypes.join(', ')}`);
 }
 
 /**
@@ -1056,12 +1056,12 @@ async function clearCharacterSettings() {
     const success = safeDeleteCharacterSettings(characterName);
     if (success) {
         currentCharacterSettings = null;
-        console.log(`STChatModelTemp: Cleared character settings for "${characterName}"`);
+        console.log(`STMTL: Cleared character settings for "${characterName}"`);
 
         saveSettingsDebounced();
 
         if (extensionSettings.moduleSettings.showOtherNotifications) {
-            toastr.info(`Character settings cleared for ${characterName}`, 'STChatModelTemp');
+            toastr.info(`Character settings cleared for ${characterName}`, 'STMTL');
         }
     }
 }
@@ -1074,13 +1074,13 @@ async function clearChatSettings() {
     const context = getCurrentExtensionContext();
     if (!context.chatId || !chat_metadata) return;
 
-    delete chat_metadata.STChatModelTemp;
+    delete chat_metadata.STMTL;
     currentChatSettings = null;
 
     saveMetadataDebounced();
 
     if (extensionSettings.moduleSettings.showOtherNotifications) {
-        toastr.info('Chat settings cleared', 'STChatModelTemp');
+        toastr.info('Chat settings cleared', 'STMTL');
     }
 }
 
@@ -1100,16 +1100,16 @@ function migrateOldData() {
         extensionSettings.moduleSettings.showAutoSaveNotifications = oldNotificationSetting;
         extensionSettings.moduleSettings.showOtherNotifications = oldNotificationSetting;
         delete extensionSettings.moduleSettings.showNotifications;
-        console.log('STChatModelTemp: Migrated legacy notification setting.');
+        console.log('STMTL: Migrated legacy notification setting.');
     }
 
 
     if (extensionSettings.migrationVersion >= 3) {  // Incremented version
-        console.log('STChatModelTemp: Migration already completed');
+        console.log('STMTL: Migration already completed');
         return;
     }
 
-    console.log('STChatModelTemp: Starting data migration...');
+    console.log('STMTL: Starting data migration...');
 
     // First run the autosave migration
     migrateAutoSaveSettings();
@@ -1131,31 +1131,31 @@ function migrateOldData() {
                         .replace(/\\\./g, '.')
                         .replace(/\\\]/g, ']')
                         .replace(/\\\[/g, '[');
-                    console.log(`STChatModelTemp: Unescaped character key "${characterKey}" to "${characterName}"`);
+                    console.log(`STMTL: Unescaped character key "${characterKey}" to "${characterName}"`);
                 } catch (e) {
-                    console.warn(`STChatModelTemp: Could not unescape key "${characterKey}", using as-is`);
+                    console.warn(`STMTL: Could not unescape key "${characterKey}", using as-is`);
                 }
             }
 
             newCharacterSettings[characterName] = settings;
             migratedCount++;
-            console.log(`STChatModelTemp: Migrated settings for "${characterName}"`);
+            console.log(`STMTL: Migrated settings for "${characterName}"`);
         }
 
         extensionSettings.characterSettings = newCharacterSettings;
-        console.log(`STChatModelTemp: Migrated ${migratedCount} character settings to direct access format`);
+        console.log(`STMTL: Migrated ${migratedCount} character settings to direct access format`);
     }
 
     // Remove old chatSettings from extension settings
     if (extensionSettings.chatSettings) {
-        console.log('STChatModelTemp: Removing old chatSettings from extension settings (now stored in chat metadata)');
+        console.log('STMTL: Removing old chatSettings from extension settings (now stored in chat metadata)');
         delete extensionSettings.chatSettings;
     }
 
     extensionSettings.migrationVersion = 4;  // Incremented version
     saveSettingsDebounced();
 
-    console.log('STChatModelTemp: Data migration completed');
+    console.log('STMTL: Data migration completed');
 }
 
 function migrateAutoSaveSettings() {
@@ -1176,7 +1176,7 @@ function migrateAutoSaveSettings() {
         // Remove the old setting
         delete extensionSettings.moduleSettings.autoSave;
 
-        console.log('STChatModelTemp: Migrated autoSave setting to separate character/chat autosave');
+        console.log('STMTL: Migrated autoSave setting to separate character/chat autosave');
         saveSettingsDebounced();
     }
 }
@@ -1190,7 +1190,7 @@ let hasInitialized = false;
 async function init() {
     if (hasInitialized) return;
     hasInitialized = true;
-    console.log('STChatModelTemp: Initializing');
+    console.log('STMTL: Initializing');
 
     // Wait for SillyTavern to be ready
     let attempts = 0;
@@ -1198,7 +1198,7 @@ async function init() {
 
     while (attempts < maxAttempts) {
         if ($(SELECTORS.mainApi).length > 0 && eventSource && typeof Popup !== 'undefined') {
-            console.log('STChatModelTemp: SillyTavern UI and Popup system detected');
+            console.log('STMTL: SillyTavern UI and Popup system detected');
             break;
         }
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -1207,7 +1207,7 @@ async function init() {
 
     // Initialize extension settings
     const settings = getExtensionSettings();
-    console.log('STChatModelTemp: Settings ready:', lodash.keys(settings));
+    console.log('STMTL: Settings ready:', lodash.keys(settings));
 
     // Run data migration if needed
     migrateOldData();
@@ -1224,10 +1224,10 @@ async function init() {
     // Initial context detection and settings load
     setTimeout(() => {
         onCharacterChanged();
-        console.log('STChatModelTemp: Initial context loaded');
+        console.log('STMTL: Initial context loaded');
     }, 1000);
 
-    console.log('STChatModelTemp: Extension loaded successfully');
+    console.log('STMTL: Extension loaded successfully');
 }
 
 // Initialize when the extension loads
@@ -1239,5 +1239,5 @@ $(document).ready(() => {
     // Fallback initialization
     setTimeout(init, 1500);
 
-    console.log('STChatModelTemp: Ready to initialize with chat_metadata support');
+    console.log('STMTL: Ready to initialize with chat_metadata support');
 });

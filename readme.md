@@ -1,4 +1,4 @@
-# STChatModelTemp Extension
+# Model Temp Locks (A SillyTavern Extension)
 
 Your AI chat settings, but smarter. This extension remembers what model and temperature you like to use for different characters and chats, so you don't have to keep tweaking things every time.
 
@@ -27,7 +27,7 @@ First, open the extension by clicking "Model Memory" in your Extensions menu. Yo
 
 **Auto-save options:**
 
-If enabled, STChatModelTemp will auto-save whenever messages are generated. Choose between: 
+If enabled, Model Temp Locks will auto-save whenever messages are generated. Choose between: 
 - Auto-save character settings
 - Auto-save chat settings
 - Both
@@ -67,7 +67,7 @@ Turn on character memory and autosave, then set up each character's preferred mo
 Enable chat memory and autosave. Each conversation can have its own vibe.
 
 **Mix and match:**
-Use both! Set up character defaults, then override them for specific conversations when you need something different. STChatModelTemp handles the priority based on your preferences.
+Use both! Set up character defaults, then override them for specific conversations when you need something different. Model Temp Locks handles the priority based on your preferences.
 
 ## Technical Requirements/Details
 
