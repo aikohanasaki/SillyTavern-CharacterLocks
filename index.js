@@ -199,13 +199,13 @@ const popupTemplate = Handlebars.compile(`
     </div>
 
     <div class="completion_prompt_manager_popup_entry_form_control">
-        <h5>Current Character Settings:</h5>
-        <div class="mes_file_container">
+        <h4>Current Character Settings:</h4>
+        <div class="info_block" style="background: #2a2a2a; border-radius: 5px; margin-top: 10px;">
             <pre style="margin: 0; white-space: pre-line;">{{characterInfo}}</pre>
         </div>
 
-        <h5>Current Chat Settings:</h5>
-        <div class="mes_file_container">
+        <h4>Current Chat Settings:</h4>
+        <div class="info_block" style="background: #2a2a2a; border-radius: 5px; margin-top: 10px;">
             <pre style="margin: 0; white-space: pre-line;">{{chatInfo}}</pre>
         </div>
     </div>
@@ -361,6 +361,25 @@ Saved: ${formattedDate}`;
 }
 
 /**
+ * Injects CSS to fix popup button wrapping on mobile.
+ */
+function addPopupWrapStyle() {
+    // Prevents adding the style more than once
+    if (document.getElementById('stmtl-popup-fix')) return;
+
+    const css = `
+        .popup-controls {
+            flex-wrap: wrap !important;
+            justify-content: center !important;
+        }
+    `;
+    const style = document.createElement('style');
+    style.id = 'stmtl-popup-fix';
+    style.textContent = css;
+    document.head.appendChild(style);
+}
+
+/**
  * Generate popup HTML content using Handlebars template
  */
 function getPopupContent() {
@@ -489,15 +508,7 @@ async function showPopup() {
 
     const customButtons = [
         {
-            text: '💾 Update Both',
-            classes: ['menu_button'],
-            action: async () => {
-                await saveCurrentSettings(true, true, false);
-                refreshPopupContent();
-            }
-        },
-        {
-            text: '👤 Update Character',
+            text: '✔️ Set Character',
             classes: ['menu_button'],
             action: async () => {
                 await saveCurrentSettings(true, false, false);
@@ -505,7 +516,7 @@ async function showPopup() {
             }
         },
         {
-            text: '💬 Update Chat',
+            text: '✔️ Set Chat',
             classes: ['menu_button'],
             action: async () => {
                 await saveCurrentSettings(false, true, false);
@@ -513,7 +524,15 @@ async function showPopup() {
             }
         },
         {
-            text: '🗑️ Clear Character',
+            text: '✔️ Set Both',
+            classes: ['menu_button'],
+            action: async () => {
+                await saveCurrentSettings(true, true, false);
+                refreshPopupContent();
+            }
+        },
+        {
+            text: '❌ Clear Character',
             classes: ['menu_button'],
             action: async () => {
                 await clearCharacterSettings();
@@ -521,7 +540,7 @@ async function showPopup() {
             }
         },
         {
-            text: '🗑️ Clear Chat',
+            text: '❌ Clear Chat',
             classes: ['menu_button'],
             action: async () => {
                 await clearChatSettings();
@@ -529,7 +548,7 @@ async function showPopup() {
             }
         },
         {
-            text: '🗑️ Clear All',
+            text: '❌ Clear Both',
             classes: ['menu_button'],
             action: async () => {
                 await clearAllSettings();
@@ -1191,6 +1210,8 @@ async function init() {
     if (hasInitialized) return;
     hasInitialized = true;
     console.log('STMTL: Initializing');
+
+    addPopupWrapStyle();
 
     // Wait for SillyTavern to be ready
     let attempts = 0;
