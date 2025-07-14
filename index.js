@@ -489,7 +489,7 @@ function createUI() {
     const menuItem = $(`
         <div id="stmtl-menu-item-container" class="extension_container interactable" tabindex="0">
             <div id="stmtl-menu-item" class="list-group-item flex-container flexGap5 interactable" tabindex="0">
-                <div class="fa-fw fa-solid fa-brain extensionsMenuExtensionButton"></div>
+                <div class="fa-fw fa-solid fa-temperature-half extensionsMenuExtensionButton"></div>
                 <span>Model/Temp Settings</span>
             </div>
         </div>
@@ -503,7 +503,7 @@ function createUI() {
  */
 async function showPopup() {
     const content = getPopupContent();
-    const header = '🧠 Model & Temperature Settings';
+    const header = '🌡️ Model & Temperature Settings';
     const contentWithHeader = `<h3>${header}</h3>${content}`;
 
     const customButtons = [

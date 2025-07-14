@@ -1,4 +1,4 @@
-# Model Temp Locks (A SillyTavern Extension)
+# 🌡️ Model Temp Locks (A SillyTavern Extension)
 
 Your AI chat settings, but smarter. This extension remembers what model and temperature you like to use for different characters and chats, so you don't have to keep tweaking things every time.
 
