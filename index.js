@@ -76,7 +76,7 @@ function getCharacterNameForSettings() {
 
     // Fallback: Use chat_metadata.character_name if name2 is not available
     if (!rawCharacterName || rawCharacterName === systemUserName || rawCharacterName === neutralCharacterName) {
-        rawCharacterName = chat_metadata?.character_name;
+        rawCharacterName = getCharacterNameFromChatMetadata();
         source = 'chat_metadata';
 
         if (!rawCharacterName) {
@@ -529,26 +529,15 @@ function refreshPopupContent() {
 
     try {
         const content = getPopupContent();
-        const header = '🧠 Model & Temperature Settings';
+        const header = '🌡️ Model & Temperature Settings';
         const newContent = `<h3>${header}</h3>${content}`;
 
         const tempContainer = document.createElement('div');
         tempContainer.innerHTML = newContent;
 
-        morphdom(currentPopupInstance.content, tempContainer, {
-            onBeforeElUpdated: function(fromEl, toEl) {
-                if (fromEl.type === 'checkbox' && toEl.type === 'checkbox') {
-                    toEl.checked = fromEl.checked;
-                }
-                if ((fromEl.type === 'text' || fromEl.tagName === 'TEXTAREA') &&
-                    (toEl.type === 'text' || toEl.tagName === 'TEXTAREA')) {
-                    toEl.value = fromEl.value;
-                }
-                return true;
-            }
-        });
+        morphdom(currentPopupInstance.content, tempContainer);
 
-        console.log('STMTL: Popup content refreshed using morphdom');
+        console.log('STMTL: Popup content refreshed - UI now reflects current data state');
     } catch (error) {
         console.error('STMTL: Error refreshing popup content:', error);
         currentPopupInstance.completeCancelled();
@@ -688,17 +677,167 @@ function handlePopupClose(popup) {
 }
 
 /**
- * Event listener setup with proper auto-save event handling
- * Auto-save only happens during specific generation events
- * FIXED: Removed redundant GROUP_SELECTED event handler
+ * Helper functions for safely accessing and modifying chat metadata
+ * These functions provide a consistent interface and handle cases where
+ * SillyTavern might change how chat_metadata is structured or accessed
+ */
+
+/**
+ * Safely get the current chat's metadata object
+ * @returns {Object|null} Current chat metadata or null if unavailable
+ */
+function getCurrentChatMetadata() {
+    try {
+        // Try multiple sources for chat metadata
+        if (typeof window.chat_metadata !== 'undefined' && window.chat_metadata !== null) {
+            return window.chat_metadata;
+        }
+
+        // Fallback: try to get from global scope without window
+        if (typeof chat_metadata !== 'undefined' && chat_metadata !== null) {
+            return chat_metadata;
+        }
+
+        // Additional fallback: check if there's a function to get current chat metadata
+        if (typeof window.getCurrentChatMetadata === 'function') {
+            return window.getCurrentChatMetadata();
+        }
+
+        console.warn('STMTL: chat_metadata not available from any known source');
+        return null;
+    } catch (error) {
+        console.warn('STMTL: Error accessing chat metadata:', error);
+        return null;
+    }
+}
+
+/**
+ * Safely get a property from current chat metadata
+ * @param {string} key - The property key to retrieve
+ * @returns {any} The property value or null if not found
+ */
+function getChatMetadataProperty(key) {
+    const metadata = getCurrentChatMetadata();
+    if (!metadata || !key) {
+        return null;
+    }
+
+    try {
+        return metadata[key] || null;
+    } catch (error) {
+        console.warn(`STMTL: Error getting chat metadata property '${key}':`, error);
+        return null;
+    }
+}
+
+/**
+ * Safely set a property in current chat metadata
+ * @param {string} key - The property key to set
+ * @param {any} value - The value to set
+ * @returns {boolean} True if successful, false otherwise
+ */
+function setChatMetadataProperty(key, value) {
+    if (!key) {
+        console.warn('STMTL: Cannot set chat metadata property - invalid key');
+        return false;
+    }
+
+    try {
+        // Try to get existing metadata
+        let metadata = getCurrentChatMetadata();
+        
+        // If no metadata exists, try to create it
+        if (!metadata) {
+            // Try to initialize window.chat_metadata
+            if (typeof window !== 'undefined') {
+                window.chat_metadata = {};
+                metadata = window.chat_metadata;
+            } else {
+                // Fallback: try global scope
+                if (typeof global !== 'undefined') {
+                    global.chat_metadata = {};
+                    metadata = global.chat_metadata;
+                } else {
+                    console.warn('STMTL: Cannot create chat metadata - no global scope available');
+                    return false;
+                }
+            }
+        }
+
+        metadata[key] = value;
+        console.log(`STMTL: Set chat metadata property '${key}':`, value);
+        return true;
+    } catch (error) {
+        console.error(`STMTL: Error setting chat metadata property '${key}':`, error);
+        return false;
+    }
+}
+
+/**
+ * Safely delete a property from current chat metadata
+ * @param {string} key - The property key to delete
+ * @returns {boolean} True if successful or property didn't exist, false on error
+ */
+function deleteChatMetadataProperty(key) {
+    if (!key) {
+        console.warn('STMTL: Cannot delete chat metadata property - invalid key');
+        return false;
+    }
+
+    try {
+        const metadata = getCurrentChatMetadata();
+        if (!metadata) {
+            console.log(`STMTL: No chat metadata to delete property '${key}' from`);
+            return true; // Consider this success since the property effectively doesn't exist
+        }
+
+        if (metadata.hasOwnProperty(key)) {
+            delete metadata[key];
+            console.log(`STMTL: Deleted chat metadata property '${key}'`);
+        } else {
+            console.log(`STMTL: Chat metadata property '${key}' did not exist`);
+        }
+        return true;
+    } catch (error) {
+        console.error(`STMTL: Error deleting chat metadata property '${key}':`, error);
+        return false;
+    }
+}
+
+/**
+ * Check if current chat metadata exists and is accessible
+ * @returns {boolean} True if chat metadata is available
+ */
+function isChatMetadataAvailable() {
+    return getCurrentChatMetadata() !== null;
+}
+
+/**
+ * Get character name from chat metadata safely
+ * @returns {string|null} Character name or null if not available
+ */
+function getCharacterNameFromChatMetadata() {
+    try {
+        const characterName = getChatMetadataProperty('character_name');
+        if (characterName && typeof characterName === 'string') {
+            return characterName.trim();
+        }
+        return null;
+    } catch (error) {
+        console.warn('STMTL: Error getting character name from chat metadata:', error);
+        return null;
+    }
+}
+
+/**
+ * Event listener setup with auto-save during specific generation events
  */
 function setupEventListeners() {
-    // Menu item click handler
     $(document).on('click', SELECTORS.menuItem, function() {
         showPopup();
     });
 
-    // SillyTavern event handlers - only essential events
+    // SillyTavern event handlers
     function registerSillyTavernEvents() {
         try {
             if (!eventSource || !event_types) {
@@ -712,9 +851,6 @@ function setupEventListeners() {
             // Character and chat change events
             eventSource.on(event_types.CHARACTER_SELECTED, onCharacterChanged);
             eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
-
-            // Group-specific events
-            // FIXED: Removed redundant GROUP_SELECTED handler since CHAT_CHANGED covers both scenarios
             eventSource.on(event_types.GROUP_CHAT_CREATED, onGroupChatCreated);
             
             eventSource.on(event_types.CHAT_LOADED, () => {
@@ -724,7 +860,6 @@ function setupEventListeners() {
                 }, 500);
             });
 
-            // Auto-save events - check if either autosave is enabled
             const setupAutoSaveEvent = (eventType, eventName) => {
                 if (eventType) {
                     eventSource.on(eventType, () => {
@@ -740,10 +875,24 @@ function setupEventListeners() {
                 }
             };
 
-            // Set up auto-save for various generation events
+            // Set up auto-save for simple generation events
             setupAutoSaveEvent(event_types.GENERATION_STARTED, 'GENERATION_STARTED');
             setupAutoSaveEvent(event_types.CHAT_COMPLETION_PROMPT_READY, 'CHAT_COMPLETION_PROMPT_READY');
-            setupAutoSaveEvent(event_types.MESSAGE_RECEIVED, 'MESSAGE_RECEIVED');
+
+            eventSource.on(event_types.MESSAGE_RECEIVED, (message) => {
+                // This event provides the message object, which contains the speaker's name
+                if (message && !message.is_user) {
+                    const speakerName = message.name;
+                    const extensionSettings = getExtensionSettings();
+
+                    // Check if autosave for the speaking character should happen
+                    // This allows saving settings for individual characters even within a group chat.
+                    if (extensionSettings.moduleSettings.autoSaveCharacter && isExtensionEnabled) {
+                        console.log(`STMTL: Auto-saving settings for speaker: ${speakerName}`);
+                        saveCurrentSettingsForCharacter(speakerName, true); 
+                    }
+                }
+            });
 
             console.log('STMTL: Event listeners registered successfully');
         } catch (e) {
@@ -754,7 +903,6 @@ function setupEventListeners() {
 
     registerSillyTavernEvents();
 
-    // API change handlers
     $(document).on('change', `${SELECTORS.mainApi}, ${SELECTORS.completionSource}`, function() {
         console.log('STMTL: API change detected');
         checkApiCompatibility();
@@ -765,7 +913,6 @@ function setupEventListeners() {
         }
     });
 
-    // Model settings change handlers using lodash.debounce
     const modelSelectors = lodash.values(lodash.pick(SELECTORS, [
         'modelOpenai', 'modelClaude', 'modelWindowai', 'modelOpenrouter', 'modelAi21',
         'modelScale', 'modelGoogle', 'modelMistralai', 'customModelId', 'modelCustomSelect',
@@ -806,6 +953,36 @@ function getApiSelectors() {
         temp: SELECTORS.tempOpenai,
         tempCounter: SELECTORS.tempCounterOpenai
     };
+}
+
+/**
+ * Saves current settings specifically for a given character name.
+ */
+async function saveCurrentSettingsForCharacter(characterName, isAutoSave = false) {
+    if (!isExtensionEnabled) return;
+
+    const apiInfo = getCurrentApiInfo();
+    const selectors = getApiSelectors();
+    let currentModel = $(selectors.model).val() || '';
+    const currentTemp = parseFloat($(selectors.temp).val() || $(selectors.tempCounter).val() || 0.7);
+
+    const settingsData = {
+        model: currentModel,
+        temperature: currentTemp,
+        completionSource: apiInfo.completionSource,
+        savedAt: moment().toISOString()
+    };
+
+    // Use the existing safe function to save settings for the character by name
+    if (safeSetCharacterSettings(characterName, settingsData)) {
+        saveSettingsDebounced(); // Save all extension settings
+
+        const showNotification = (isAutoSave && getExtensionSettings().moduleSettings.showAutoSaveNotifications) ||
+                                 (!isAutoSave && getExtensionSettings().moduleSettings.showOtherNotifications);
+        if (showNotification) {
+            toastr.success(`Saved settings for character: ${characterName}`, 'STMTL');
+        }
+    }
 }
 
 /**
@@ -902,7 +1079,6 @@ function updateCachedSettings() {
     const isGroupChat = !!window.selected_group;
 
     if (isGroupChat) {
-        // Group chat
         if (extensionSettings.moduleSettings.enableGroupMemory && context.groupId) {
             currentGroupSettings = safeGetGroupSettings(context.groupId);
             console.log(`STMTL: Loaded group settings for group ID "${context.groupId}":`, currentGroupSettings);
@@ -926,8 +1102,8 @@ function updateCachedSettings() {
             console.log('STMTL: Character memory enabled but no character name found');
         }
 
-        if (extensionSettings.moduleSettings.enableChatMemory && context.chatId && chat_metadata) {
-            currentChatSettings = chat_metadata.STMTL || null;
+        if (extensionSettings.moduleSettings.enableChatMemory && context.chatId && isChatMetadataAvailable()) {
+            currentChatSettings = getChatMetadataProperty('STMTL');
             console.log('STMTL: Loaded chat settings:', currentChatSettings);
         } else if (extensionSettings.moduleSettings.enableChatMemory) {
             console.log('STMTL: Chat memory enabled but no chat context available');
@@ -1115,7 +1291,6 @@ async function saveCurrentSettings(saveCharacter = true, saveChat = true, isAuto
     const savedTypes = [];
 
     if (isGroupChat) {
-        // Group chat logic - NEW
         if (saveCharacter && extensionSettings.moduleSettings.enableGroupMemory && context.groupId) {
             const success = safeSetGroupSettings(context.groupId, settingsData);
             if (success) {
@@ -1146,7 +1321,7 @@ async function saveCurrentSettings(saveCharacter = true, saveChat = true, isAuto
             }
         }
     } else {
-        // Single character logic - ORIGINAL LOGIC PRESERVED
+        // Single character logic
         const characterName = getCharacterNameForSettings();
         if (saveCharacter && extensionSettings.moduleSettings.enableCharacterMemory && characterName) {
             const success = safeSetCharacterSettings(characterName, settingsData);
@@ -1159,17 +1334,15 @@ async function saveCurrentSettings(saveCharacter = true, saveChat = true, isAuto
         }
 
         if (saveChat && extensionSettings.moduleSettings.enableChatMemory && context.chatId) {
-            if (!chat_metadata) {
-                window.chat_metadata = {};
+            const success = setChatMetadataProperty('STMTL', settingsData);
+            if (success) {
+                currentChatSettings = lodash.cloneDeep(settingsData);
+                savedCount++;
+                savedTypes.push('chat');
+
+                console.log('STMTL: Saved chat settings:', settingsData);
+                triggerMetadataSave();
             }
-
-            chat_metadata.STMTL = settingsData;
-            currentChatSettings = lodash.cloneDeep(settingsData);
-            savedCount++;
-            savedTypes.push('chat');
-
-            console.log('STMTL: Saved chat settings:', settingsData);
-            saveMetadataDebounced();
         }
     }
 
@@ -1201,7 +1374,6 @@ async function clearAllSettings() {
     const clearedTypes = [];
 
     if (isGroupChat) {
-        // Clear group settings - NEW
         const context = getCurrentExtensionContext();
         if (context.groupId) {
             const success = safeDeleteGroupSettings(context.groupId);
@@ -1212,7 +1384,6 @@ async function clearAllSettings() {
             }
         }
 
-        // Clear group chat settings - NEW
         if (context.chatId) {
             const group = window.groups?.find(x => x.id === context.groupId);
             if (group?.chat_metadata?.STMTL) {
@@ -1221,14 +1392,13 @@ async function clearAllSettings() {
                 clearedCount++;
                 clearedTypes.push('group chat');
                 
-                // Trigger group save if the function exists
                 if (typeof window.editGroup === 'function') {
                     window.editGroup(context.groupId, false, false);
                 }
             }
         }
     } else {
-        // Clear character settings - ORIGINAL LOGIC PRESERVED
+        // Single character logic
         const characterName = getCharacterNameForSettings();
         if (characterName) {
             const success = safeDeleteCharacterSettings(characterName);
@@ -1239,14 +1409,15 @@ async function clearAllSettings() {
             }
         }
 
-        // Clear chat settings - ORIGINAL LOGIC PRESERVED
         const context = getCurrentExtensionContext();
-        if (context.chatId && chat_metadata && chat_metadata.STMTL) {
-            delete chat_metadata.STMTL;
-            currentChatSettings = null;
-            clearedCount++;
-            clearedTypes.push('chat');
-            saveMetadataDebounced();
+        if (context.chatId && getChatMetadataProperty('STMTL')) {
+            const success = deleteChatMetadataProperty('STMTL');
+            if (success) {
+                currentChatSettings = null;
+                clearedCount++;
+                clearedTypes.push('chat');
+                triggerMetadataSave();
+            }
         }
     }
 
@@ -1314,13 +1485,12 @@ async function clearChatSettings() {
     if (!context.chatId) return;
 
     if (isGroupChat) {
-        // Clear group chat settings - NEW
+        // Group logic remains the same...
         const group = window.groups?.find(x => x.id === context.groupId);
         if (group?.chat_metadata?.STMTL) {
             delete group.chat_metadata.STMTL;
             currentChatSettings = null;
             
-            // Trigger group save if the function exists
             if (typeof window.editGroup === 'function') {
                 window.editGroup(context.groupId, false, false);
             }
@@ -1330,16 +1500,34 @@ async function clearChatSettings() {
             }
         }
     } else {
-        // Clear single character chat settings - ORIGINAL LOGIC PRESERVED
-        if (chat_metadata?.STMTL) {
-            delete chat_metadata.STMTL;
-            currentChatSettings = null;
-            saveMetadataDebounced();
+        if (getChatMetadataProperty('STMTL')) {
+            const success = deleteChatMetadataProperty('STMTL');
+            if (success) {
+                currentChatSettings = null;
+                triggerMetadataSave(); 
 
-            if (extensionSettings.moduleSettings.showOtherNotifications) {
-                toastr.info('Chat settings cleared', 'STMTL');
+                if (extensionSettings.moduleSettings.showOtherNotifications) {
+                    toastr.info('Chat settings cleared', 'STMTL');
+                }
             }
         }
+    }
+}
+
+/**
+ * Safely trigger metadata save if the function exists
+ */
+function triggerMetadataSave() {
+    try {
+        if (typeof saveMetadataDebounced === 'function') {
+            saveMetadataDebounced();
+        } else if (typeof window.saveMetadataDebounced === 'function') {
+            window.saveMetadataDebounced();
+        } else {
+            console.warn('STMTL: saveMetadataDebounced function not available');
+        }
+    } catch (error) {
+        console.error('STMTL: Error triggering metadata save:', error);
     }
 }
 
