@@ -277,6 +277,7 @@ function getExtensionSettings() {
 
 /**
  * Get current context - leverages ST's context but augments with extension-specific needs
+ * FIXED: Now uses consistent character name resolution
  */
 function getCurrentExtensionContext() {
     try {
@@ -303,15 +304,8 @@ function getCurrentExtensionContext() {
                 characterName = groupName;
             }
         } else {
-            // Single character chat context (ORIGINAL LOGIC PRESERVED)
-            const rawCharacterName = chat_metadata?.character_name;
-            if (rawCharacterName) {
-                characterName = String(rawCharacterName).trim();
-                // Normalize unicode characters
-                if (characterName.normalize) {
-                    characterName = characterName.normalize('NFC');
-                }
-            }
+            // Single character chat context - FIXED: Use consistent character name resolution
+            characterName = getCharacterNameForSettings();
 
             // Get chat information from base context or fallback methods
             if (baseContext?.chatId) {
@@ -696,6 +690,7 @@ function handlePopupClose(popup) {
 /**
  * Event listener setup with proper auto-save event handling
  * Auto-save only happens during specific generation events
+ * FIXED: Removed redundant GROUP_SELECTED event handler
  */
 function setupEventListeners() {
     // Menu item click handler
@@ -719,7 +714,7 @@ function setupEventListeners() {
             eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
 
             // Group-specific events
-            eventSource.on(event_types.GROUP_SELECTED, onGroupChanged);
+            // FIXED: Removed redundant GROUP_SELECTED handler since CHAT_CHANGED covers both scenarios
             eventSource.on(event_types.GROUP_CHAT_CREATED, onGroupChatCreated);
             
             eventSource.on(event_types.CHAT_LOADED, () => {
@@ -846,11 +841,6 @@ function onChatChanged() {
 
     updateCachedSettings();
     applySettings();
-}
-
-function onGroupChanged() {
-    console.log('STMTL: Group change event triggered');
-    onCharacterChanged(); 
 }
 
 function onGroupChatCreated() {
