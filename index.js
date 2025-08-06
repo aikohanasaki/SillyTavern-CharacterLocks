@@ -2,6 +2,7 @@ import { eventSource, event_types, saveSettingsDebounced, chat_metadata, name2, 
 import { extension_settings, saveMetadataDebounced, getContext } from '../../../extensions.js';
 import { Popup, POPUP_TYPE, POPUP_RESULT } from '../../../popup.js';
 import { lodash, moment, Handlebars, DOMPurify, morphdom } from '../../../../lib.js';
+import { selected_group, groups } from '../../../group-chats.js';
 
 const MODULE_NAME = 'STMTL';
 const SAVE_DEBOUNCE_TIME = 1000;
@@ -49,6 +50,7 @@ const defaultSettings = {
         enableGroupMemory: true,
         preferCharacterOverChat: true,
         preferGroupOverChat: true,
+        preferIndividualCharacterInGroup: false,
         autoSaveCharacter: false,
         autoSaveChat: false,
         autoSaveGroup: false,
@@ -64,6 +66,7 @@ const defaultSettings = {
 let currentCharacterSettings = null;
 let currentChatSettings = null;
 let currentGroupSettings = null;
+let currentIndividualCharacterSettings = null;
 let isExtensionEnabled = false;
 
 // Cache for the current popup instance to allow content refresh
@@ -96,6 +99,37 @@ function getCharacterNameForSettings() {
     console.log('STMTL: Normalized character name:', characterName);
 
     return characterName;
+}
+
+/**
+ * Get the current active character name in a group chat (from last message or selected character)
+ */
+function getCurrentActiveCharacterInGroup() {
+    try {
+        // Try to get the character name from the most recent non-user message
+        if (window.chat && window.chat.length > 0) {
+            for (let i = window.chat.length - 1; i >= 0; i--) {
+                const message = window.chat[i];
+                if (message && !message.is_user && message.name) {
+                    return message.name;
+                }
+            }
+        }
+
+        // Fallback: use the currently selected character if available
+        if (selected_group && groups) {
+            const group = groups.find(x => x.id === selected_group);
+            if (group && group.members && group.members.length > 0) {
+                // Return the first member as a fallback
+                return group.members[0];
+            }
+        }
+
+        return null;
+    } catch (error) {
+        console.warn('STMTL: Error getting active character in group:', error);
+        return null;
+    }
 }
 
 /**
@@ -251,10 +285,17 @@ const popupTemplate = Handlebars.compile(`
     </div>
 
     <div class="completion_prompt_manager_popup_entry_form_control">
-        <h4>Current Character Settings:</h4>
+        <h4>Current {{groupOrCharLabel}} Settings:</h4>
         <div class="info_block" style="background: #2a2a2a; border-radius: 5px; margin-top: 10px;">
             <pre style="margin: 0; white-space: pre-line;">{{characterInfo}}</pre>
         </div>
+
+        {{#if isGroupChat}}
+        <h4>Current Individual Character Settings:</h4>
+        <div class="info_block" style="background: #2a2a2a; border-radius: 5px; margin-top: 10px;">
+            <pre style="margin: 0; white-space: pre-line;">{{individualCharacterInfo}}</pre>
+        </div>
+        {{/if}}
 
         <h4>Current Chat Settings:</h4>
         <div class="info_block" style="background: #2a2a2a; border-radius: 5px; margin-top: 10px;">
@@ -277,7 +318,6 @@ function getExtensionSettings() {
 
 /**
  * Get current context - leverages ST's context but augments with extension-specific needs
- * FIXED: Now uses consistent character name resolution
  */
 function getCurrentExtensionContext() {
     try {
@@ -288,14 +328,15 @@ function getCurrentExtensionContext() {
         let chatId = null;
         let chatName = null;
 
-        // Check if we're in a group chat
-        const isGroupChat = !!window.selected_group;
-        const groupId = window.selected_group || null;
+        // EXPLICIT GROUP DETECTION
+        const isGroupChat = !!selected_group;
+        const groupId = selected_group || null;
         let groupName = null;
 
         if (isGroupChat) {
+            console.log('STMTL: Group chat detected, groupId:', groupId);
             // Group chat context
-            const group = window.groups?.find(x => x.id === groupId);
+            const group = groups?.find(x => x.id === groupId);
             if (group) {
                 groupName = group.name;
                 chatId = group.chat_id;
@@ -304,7 +345,8 @@ function getCurrentExtensionContext() {
                 characterName = groupName;
             }
         } else {
-            // Single character chat context - FIXED: Use consistent character name resolution
+            console.log('STMTL: Single character chat detected');
+            // Single character chat context
             characterName = getCharacterNameForSettings();
 
             // Get chat information from base context or fallback methods
@@ -317,18 +359,18 @@ function getCurrentExtensionContext() {
             }
         }
 
-        // PRESERVE ORIGINAL RETURN STRUCTURE
         const result = {
             characterName,
             chatId,
-            groupId: baseContext?.groupId || window.selected_group || null,
-            chatName
+            groupId: groupId,
+            chatName,
+            isGroupChat: isGroupChat
         };
 
-        // ADD PROPERTIES FOR GROUP SUPPORT
+        // Add properties for group support
         if (isGroupChat) {
             result.groupName = groupName;
-            result.isGroupChat = true;
+            result.activeCharacterInGroup = getCurrentActiveCharacterInGroup();
         }
 
         console.log('STMTL: Enhanced context resolved:', result);
@@ -340,7 +382,8 @@ function getCurrentExtensionContext() {
             characterName: null,
             chatId: null,
             groupId: null,
-            chatName: null
+            chatName: null,
+            isGroupChat: false
         };
     }
 }
@@ -450,73 +493,147 @@ function addPopupWrapStyle() {
 }
 
 /**
- * Generate popup HTML content using Handlebars template
+ * Generate popup HTML content using Handlebars template - FIXED GROUP DETECTION
  */
 function getPopupContent() {
     const settings = getExtensionSettings();
     const apiInfo = getCurrentApiInfo();
-    const isGroupChat = !!window.selected_group;
+    
+    // EXPLICIT GROUP DETECTION
+    const isGroupChat = !!selected_group;
+    
+    console.log('STMTL: getPopupContent - isGroupChat:', isGroupChat);
 
-    const statusText = isExtensionEnabled
-        ? `Active (${apiInfo.completionSource})${isGroupChat ? ' - Group Chat' : ''}`
-        : `Requires Chat Completion API (current: ${apiInfo.api})`;
+    if (isGroupChat) {
+        // --- GROUP CHAT PATH ---
+        const statusText = isExtensionEnabled
+            ? `Active (${apiInfo.completionSource}) - Group Chat`
+            : `Requires Chat Completion API (current: ${apiInfo.api}) - Group Chat`;
 
-    const templateData = {
-        isExtensionEnabled,
-        statusText,
-        isGroupChat: isGroupChat,
-        characterInfo: isGroupChat ? formatSettingsInfo(currentGroupSettings) : formatSettingsInfo(currentCharacterSettings),
-        chatInfo: formatSettingsInfo(currentChatSettings),
-        groupInfo: formatSettingsInfo(currentGroupSettings),
-        checkboxes: [
-            {
-                id: 'stmtl-enable-character',
-                label: isGroupChat ? 'Remember per group' : 'Remember per character',
-                checked: isGroupChat ? settings.moduleSettings.enableGroupMemory : settings.moduleSettings.enableCharacterMemory,
-                requiresApi: true
-            },
-            {
-                id: 'stmtl-enable-chat',
-                label: 'Remember per chat',
-                checked: settings.moduleSettings.enableChatMemory,
-                requiresApi: true
-            },
-            {
-                id: 'stmtl-prefer-character',
-                label: isGroupChat ? 'Prefer group settings over chat' : 'Prefer character settings over chat',
-                checked: isGroupChat ? settings.moduleSettings.preferGroupOverChat : settings.moduleSettings.preferCharacterOverChat,
-                requiresApi: true
-            },
-            {
-                id: 'stmtl-auto-save-character',
-                label: isGroupChat ? 'Auto-save group settings' : 'Auto-save character settings',
-                checked: isGroupChat ? settings.moduleSettings.autoSaveGroup : settings.moduleSettings.autoSaveCharacter,
-                requiresApi: true
-            },
-            {
-                id: 'stmtl-auto-save-chat',
-                label: 'Auto-save chat settings',
-                checked: settings.moduleSettings.autoSaveChat,
-                requiresApi: true
-            },
-            {
-                id: 'stmtl-show-autosave-notifications',
-                label: 'Show auto-save notifications',
-                checked: settings.moduleSettings.showAutoSaveNotifications,
-                requiresApi: false
-            },
-            {
-                id: 'stmtl-show-other-notifications',
-                label: 'Show other notifications',
-                checked: settings.moduleSettings.showOtherNotifications,
-                requiresApi: false
-            }
-        ]
-    };
+        const templateData = {
+            isExtensionEnabled,
+            statusText,
+            isGroupChat: true,
+            groupOrCharLabel: 'Group',
+            characterInfo: formatSettingsInfo(currentGroupSettings),
+            individualCharacterInfo: formatSettingsInfo(currentIndividualCharacterSettings),
+            chatInfo: formatSettingsInfo(currentChatSettings),
+            checkboxes: [
+                {
+                    id: 'stmtl-enable-character',
+                    label: 'Remember per group',
+                    checked: settings.moduleSettings.enableGroupMemory,
+                    requiresApi: true
+                },
+                {
+                    id: 'stmtl-enable-chat',
+                    label: 'Remember per chat',
+                    checked: settings.moduleSettings.enableChatMemory,
+                    requiresApi: true
+                },
+                {
+                    id: 'stmtl-prefer-group-over-chat',
+                    label: 'Prefer group settings over chat',
+                    checked: settings.moduleSettings.preferGroupOverChat,
+                    requiresApi: true
+                },
+                {
+                    id: 'stmtl-prefer-individual-character',
+                    label: 'Prefer individual character settings',
+                    checked: settings.moduleSettings.preferIndividualCharacterInGroup,
+                    requiresApi: true
+                },
+                {
+                    id: 'stmtl-auto-save-character',
+                    label: 'Auto-save group settings',
+                    checked: settings.moduleSettings.autoSaveGroup,
+                    requiresApi: true
+                },
+                {
+                    id: 'stmtl-auto-save-chat',
+                    label: 'Auto-save chat settings',
+                    checked: settings.moduleSettings.autoSaveChat,
+                    requiresApi: true
+                },
+                {
+                    id: 'stmtl-show-autosave-notifications',
+                    label: 'Show auto-save notifications',
+                    checked: settings.moduleSettings.showAutoSaveNotifications,
+                    requiresApi: false
+                },
+                {
+                    id: 'stmtl-show-other-notifications',
+                    label: 'Show other notifications',
+                    checked: settings.moduleSettings.showOtherNotifications,
+                    requiresApi: false
+                }
+            ]
+        };
 
-    return DOMPurify.sanitize(popupTemplate(templateData));
+        return DOMPurify.sanitize(popupTemplate(templateData));
+
+    } else {
+        // --- SINGLE CHARACTER PATH ---
+        const statusText = isExtensionEnabled
+            ? `Active (${apiInfo.completionSource})`
+            : `Requires Chat Completion API (current: ${apiInfo.api})`;
+
+        const templateData = {
+            isExtensionEnabled,
+            statusText,
+            isGroupChat: false,
+            groupOrCharLabel: 'Character',
+            characterInfo: formatSettingsInfo(currentCharacterSettings),
+            chatInfo: formatSettingsInfo(currentChatSettings),
+            checkboxes: [
+                {
+                    id: 'stmtl-enable-character',
+                    label: 'Remember per character',
+                    checked: settings.moduleSettings.enableCharacterMemory,
+                    requiresApi: true
+                },
+                {
+                    id: 'stmtl-enable-chat',
+                    label: 'Remember per chat',
+                    checked: settings.moduleSettings.enableChatMemory,
+                    requiresApi: true
+                },
+                {
+                    id: 'stmtl-prefer-character',
+                    label: 'Prefer character settings over chat',
+                    checked: settings.moduleSettings.preferCharacterOverChat,
+                    requiresApi: true
+                },
+                {
+                    id: 'stmtl-auto-save-character',
+                    label: 'Auto-save character settings',
+                    checked: settings.moduleSettings.autoSaveCharacter,
+                    requiresApi: true
+                },
+                {
+                    id: 'stmtl-auto-save-chat',
+                    label: 'Auto-save chat settings',
+                    checked: settings.moduleSettings.autoSaveChat,
+                    requiresApi: true
+                },
+                {
+                    id: 'stmtl-show-autosave-notifications',
+                    label: 'Show auto-save notifications',
+                    checked: settings.moduleSettings.showAutoSaveNotifications,
+                    requiresApi: false
+                },
+                {
+                    id: 'stmtl-show-other-notifications',
+                    label: 'Show other notifications',
+                    checked: settings.moduleSettings.showOtherNotifications,
+                    requiresApi: false
+                }
+            ]
+        };
+
+        return DOMPurify.sanitize(popupTemplate(templateData));
+    }
 }
-
 
 /**
  * Refreshes the content of the currently open popup without closing it
@@ -568,10 +685,12 @@ async function showPopup() {
     const content = getPopupContent();
     const header = '🌡️ Model & Temperature Settings';
     const contentWithHeader = `<h3>${header}</h3>${content}`;
+    const isGroupChat = !!selected_group;
 
     const customButtons = [
         {
-            text: '✔️ Set Character',
+            // Use a ternary operator to set the text
+            text: isGroupChat ? '✔️ Set Group' : '✔️ Set Character',
             classes: ['menu_button'],
             action: async () => {
                 await saveCurrentSettings(true, false, false);
@@ -587,15 +706,24 @@ async function showPopup() {
             }
         },
         {
-            text: '✔️ Set Both',
+            text: isGroupChat ? '✔️ Set All' : '✔️ Set Both',
             classes: ['menu_button'],
             action: async () => {
                 await saveCurrentSettings(true, true, false);
+
+                // Add save character settings when in group chat.
+                if (isGroupChat) {
+                    const context = getCurrentExtensionContext();
+                    if (context.activeCharacterInGroup) {
+                        await saveCurrentSettingsForCharacter(context.activeCharacterInGroup, false);
+                    }
+                }
+
                 refreshPopupContent();
             }
         },
         {
-            text: '❌ Clear Character',
+            text: isGroupChat ? '❌ Clear Group' : '❌ Clear Character',
             classes: ['menu_button'],
             action: async () => {
                 await clearCharacterSettings();
@@ -611,7 +739,7 @@ async function showPopup() {
             }
         },
         {
-            text: '❌ Clear Both',
+            text: '❌ Clear All',
             classes: ['menu_button'],
             action: async () => {
                 await clearAllSettings();
@@ -619,6 +747,48 @@ async function showPopup() {
             }
         }
     ];
+
+if (isGroupChat) {
+        // "Set Active Char" button
+        const setActiveCharButton = {
+            text: '✔️ Set Active Char',
+            classes: ['menu_button'],
+            action: async () => {
+                const context = getCurrentExtensionContext();
+                if (context.activeCharacterInGroup) {
+                    await saveCurrentSettingsForCharacter(context.activeCharacterInGroup, false);
+                    updateCachedSettings(); // Update cache to reflect new settings
+                    toastr.success(`Saved settings for active character: ${context.activeCharacterInGroup}`, 'STMTL');
+                } else {
+                    toastr.warning('No active character detected in the group to save settings for.', 'STMTL');
+                }
+                refreshPopupContent();
+            }
+        };
+        // Insert "Set Active Char" before "Set Chat"
+        customButtons.splice(1, 0, setActiveCharButton);
+
+        // "Clear Active Char" button
+        const clearActiveCharButton = {
+            text: '❌ Clear Active Char',
+            classes: ['menu_button'],
+            action: async () => {
+                const context = getCurrentExtensionContext();
+                if (context.activeCharacterInGroup) {
+                    if (safeDeleteCharacterSettings(context.activeCharacterInGroup)) {
+                        saveSettingsDebounced();
+                        updateCachedSettings();
+                        toastr.info(`Cleared individual settings for ${context.activeCharacterInGroup}`, 'STMTL');
+                    }
+                } else {
+                    toastr.warning('No active character detected to clear settings for.', 'STMTL');
+                }
+                refreshPopupContent();
+            }
+        };
+        // insert "Clear Active Char" before "Clear Chat"
+        customButtons.splice(5, 0, clearActiveCharButton);
+    }
 
     const popupOptions = {
         wide: true,
@@ -645,16 +815,36 @@ function handlePopupClose(popup) {
     try {
         const popupElement = popup.dlg;
         const settings = getExtensionSettings();
+        const isGroupChat = !!selected_group;
+        
+        console.log('STMTL: handlePopupClose - isGroupChat:', isGroupChat);
 
-        const checkboxMappings = {
-            'stmtl-enable-character': 'enableCharacterMemory',
-            'stmtl-enable-chat': 'enableChatMemory',
-            'stmtl-prefer-character': 'preferCharacterOverChat',
-            'stmtl-auto-save-character': 'autoSaveCharacter',
-            'stmtl-auto-save-chat': 'autoSaveChat',
-            'stmtl-show-autosave-notifications': 'showAutoSaveNotifications',
-            'stmtl-show-other-notifications': 'showOtherNotifications'
-        };
+        let checkboxMappings = {};
+
+        if (isGroupChat) {
+            // --- GROUP CHAT CHECKBOX MAPPINGS ---
+            checkboxMappings = {
+                'stmtl-enable-character': 'enableGroupMemory',
+                'stmtl-enable-chat': 'enableChatMemory',
+                'stmtl-prefer-group-over-chat': 'preferGroupOverChat',
+                'stmtl-prefer-individual-character': 'preferIndividualCharacterInGroup',
+                'stmtl-auto-save-character': 'autoSaveGroup',
+                'stmtl-auto-save-chat': 'autoSaveChat',
+                'stmtl-show-autosave-notifications': 'showAutoSaveNotifications',
+                'stmtl-show-other-notifications': 'showOtherNotifications'
+            };
+        } else {
+            // --- SINGLE CHARACTER CHECKBOX MAPPINGS ---
+            checkboxMappings = {
+                'stmtl-enable-character': 'enableCharacterMemory',
+                'stmtl-enable-chat': 'enableChatMemory',
+                'stmtl-prefer-character': 'preferCharacterOverChat',
+                'stmtl-auto-save-character': 'autoSaveCharacter',
+                'stmtl-auto-save-chat': 'autoSaveChat',
+                'stmtl-show-autosave-notifications': 'showAutoSaveNotifications',
+                'stmtl-show-other-notifications': 'showOtherNotifications'
+            };
+        }
 
         const newValues = lodash.mapValues(checkboxMappings, (settingKey, checkboxId) => {
             return popupElement.querySelector(`#${checkboxId}`)?.checked ?? settings.moduleSettings[settingKey];
@@ -678,14 +868,8 @@ function handlePopupClose(popup) {
 
 /**
  * Helper functions for safely accessing and modifying chat metadata
- * These functions provide a consistent interface and handle cases where
- * SillyTavern might change how chat_metadata is structured or accessed
  */
 
-/**
- * Safely get the current chat's metadata object
- * @returns {Object|null} Current chat metadata or null if unavailable
- */
 function getCurrentChatMetadata() {
     try {
         // Try multiple sources for chat metadata
@@ -711,11 +895,6 @@ function getCurrentChatMetadata() {
     }
 }
 
-/**
- * Safely get a property from current chat metadata
- * @param {string} key - The property key to retrieve
- * @returns {any} The property value or null if not found
- */
 function getChatMetadataProperty(key) {
     const metadata = getCurrentChatMetadata();
     if (!metadata || !key) {
@@ -730,12 +909,6 @@ function getChatMetadataProperty(key) {
     }
 }
 
-/**
- * Safely set a property in current chat metadata
- * @param {string} key - The property key to set
- * @param {any} value - The value to set
- * @returns {boolean} True if successful, false otherwise
- */
 function setChatMetadataProperty(key, value) {
     if (!key) {
         console.warn('STMTL: Cannot set chat metadata property - invalid key');
@@ -773,11 +946,6 @@ function setChatMetadataProperty(key, value) {
     }
 }
 
-/**
- * Safely delete a property from current chat metadata
- * @param {string} key - The property key to delete
- * @returns {boolean} True if successful or property didn't exist, false on error
- */
 function deleteChatMetadataProperty(key) {
     if (!key) {
         console.warn('STMTL: Cannot delete chat metadata property - invalid key');
@@ -804,18 +972,10 @@ function deleteChatMetadataProperty(key) {
     }
 }
 
-/**
- * Check if current chat metadata exists and is accessible
- * @returns {boolean} True if chat metadata is available
- */
 function isChatMetadataAvailable() {
     return getCurrentChatMetadata() !== null;
 }
 
-/**
- * Get character name from chat metadata safely
- * @returns {string|null} Character name or null if not available
- */
 function getCharacterNameFromChatMetadata() {
     try {
         const characterName = getChatMetadataProperty('character_name');
@@ -863,12 +1023,26 @@ function setupEventListeners() {
             const setupAutoSaveEvent = (eventType, eventName) => {
                 if (eventType) {
                     eventSource.on(eventType, () => {
-                        console.log(`STMTL: ${eventName} - checking auto-save settings`);
                         const extensionSettings = getExtensionSettings();
-                        const shouldAutoSave = extensionSettings.moduleSettings.autoSaveCharacter ||
-                                             extensionSettings.moduleSettings.autoSaveChat;
+                        const isGroupChat = !!selected_group;
+                        
+                        let isAutoSaveActive = false;
+                        if (isGroupChat) {
+                            isAutoSaveActive = extensionSettings.moduleSettings.autoSaveGroup || extensionSettings.moduleSettings.autoSaveChat;
+                        } else {
+                            isAutoSaveActive = extensionSettings.moduleSettings.autoSaveCharacter || extensionSettings.moduleSettings.autoSaveChat;
+                        }
 
-                        if (shouldAutoSave && isExtensionEnabled) {
+                        // Only enforce stored settings on generation if an auto-save option is enabled.
+                        if (isAutoSaveActive) {
+                            console.log(`STMTL: ${eventName} - Auto-save is active, applying stored settings.`);
+                            updateCachedSettings();
+                            applySettings();
+                        }
+
+                        // trigger a save if settings are changed in the UI
+                        if (isAutoSaveActive && isExtensionEnabled) {
+                            console.log(`STMTL: ${eventName} - Checking for changes to auto-save.`);
                             debouncedModelSettingsChanged();
                         }
                     });
@@ -886,7 +1060,6 @@ function setupEventListeners() {
                     const extensionSettings = getExtensionSettings();
 
                     // Check if autosave for the speaking character should happen
-                    // This allows saving settings for individual characters even within a group chat.
                     if (extensionSettings.moduleSettings.autoSaveCharacter && isExtensionEnabled) {
                         console.log(`STMTL: Auto-saving settings for speaker: ${speakerName}`);
                         saveCurrentSettingsForCharacter(speakerName, true); 
@@ -986,22 +1159,37 @@ async function saveCurrentSettingsForCharacter(characterName, isAutoSave = false
 }
 
 /**
- * Handle character change
+ * Handle character change - FIXED GROUP DETECTION
  */
 function onCharacterChanged() {
     const extensionSettings = getExtensionSettings();
-    if (!isExtensionEnabled || (!extensionSettings.moduleSettings.enableCharacterMemory && !extensionSettings.moduleSettings.enableChatMemory)) {
-        console.log('STMTL: Character change ignored - extension disabled or no memory features enabled');
-        return;
-    }
+    
+    // EXPLICIT GROUP DETECTION
+    const isGroupChat = !!selected_group;
+    
+    console.log('STMTL: onCharacterChanged - isGroupChat:', isGroupChat);
 
-    const context = getCurrentExtensionContext();
-    if (!context.characterName) {
-        console.log('STMTL: Character change ignored - no character name in chat_metadata');
-        return;
-    }
+    if (isGroupChat) {
+        // --- GROUP CHAT PATH ---
+        if (!isExtensionEnabled || (!extensionSettings.moduleSettings.enableGroupMemory && !extensionSettings.moduleSettings.enableChatMemory)) {
+            console.log('STMTL: Character change ignored - extension disabled or no group memory features enabled');
+            return;
+        }
+    } else {
+        // --- SINGLE CHARACTER PATH ---
+        if (!isExtensionEnabled || (!extensionSettings.moduleSettings.enableCharacterMemory && !extensionSettings.moduleSettings.enableChatMemory)) {
+            console.log('STMTL: Character change ignored - extension disabled or no memory features enabled');
+            return;
+        }
 
-    console.log('STMTL: Character changed to:', context.characterName);
+        const context = getCurrentExtensionContext();
+        if (!context.characterName) {
+            console.log('STMTL: Character change ignored - no character name in context');
+            return;
+        }
+
+        console.log('STMTL: Character changed to:', context.characterName);
+    }
 
     updateCachedSettings();
     applySettings();
@@ -1010,10 +1198,16 @@ function onCharacterChanged() {
 }
 
 /**
- * Handle chat change
+ * Handle chat change - FIXED GROUP DETECTION
  */
 function onChatChanged() {
     const extensionSettings = getExtensionSettings();
+    
+    // EXPLICIT GROUP DETECTION
+    const isGroupChat = !!selected_group;
+    
+    console.log('STMTL: onChatChanged - isGroupChat:', isGroupChat);
+
     if (!isExtensionEnabled || !extensionSettings.moduleSettings.enableChatMemory) return;
 
     updateCachedSettings();
@@ -1029,17 +1223,17 @@ function onGroupChatCreated() {
 }
 
 /**
- * Handle model settings change
+ * Handle model settings change - FIXED GROUP DETECTION
  */
 function onModelSettingsChanged() {
     console.log('STMTL: onModelSettingsChanged() called');
 
     const extensionSettings = getExtensionSettings();
-    const isGroupChat = !!window.selected_group;
     
-    console.log('STMTL: Group auto-save enabled:', isGroupChat && extensionSettings.moduleSettings.autoSaveGroup);
-    console.log('STMTL: Character auto-save enabled:', !isGroupChat && extensionSettings.moduleSettings.autoSaveCharacter);
-    console.log('STMTL: Chat auto-save enabled:', extensionSettings.moduleSettings.autoSaveChat);
+    // EXPLICIT GROUP DETECTION
+    const isGroupChat = !!selected_group;
+    
+    console.log('STMTL: onModelSettingsChanged - isGroupChat:', isGroupChat);
     console.log('STMTL: Extension enabled:', isExtensionEnabled);
 
     if (!isExtensionEnabled) {
@@ -1047,24 +1241,45 @@ function onModelSettingsChanged() {
         return;
     }
 
-    // Check if any autosave is enabled
-    const shouldAutoSaveGroup = isGroupChat && extensionSettings.moduleSettings.autoSaveGroup;
-    const shouldAutoSaveCharacter = !isGroupChat && extensionSettings.moduleSettings.autoSaveCharacter;
-    const shouldAutoSaveChat = extensionSettings.moduleSettings.autoSaveChat;
+    let shouldAutoSave = false;
 
-    if (!shouldAutoSaveGroup && !shouldAutoSaveCharacter && !shouldAutoSaveChat) {
-        console.log('STMTL: Skipping save - all auto-saves disabled');
-        return;
+    if (isGroupChat) {
+        // --- GROUP CHAT AUTO-SAVE LOGIC ---
+        const shouldAutoSaveGroup = extensionSettings.moduleSettings.autoSaveGroup;
+        const shouldAutoSaveChat = extensionSettings.moduleSettings.autoSaveChat;
+        
+        console.log('STMTL: Group auto-save enabled:', shouldAutoSaveGroup);
+        console.log('STMTL: Chat auto-save enabled:', shouldAutoSaveChat);
+        
+        shouldAutoSave = shouldAutoSaveGroup || shouldAutoSaveChat;
+        
+        if (shouldAutoSave) {
+            console.log('STMTL: Proceeding with group auto-save...');
+            saveCurrentSettings(shouldAutoSaveGroup, shouldAutoSaveChat, true);
+        }
+    } else {
+        // --- SINGLE CHARACTER AUTO-SAVE LOGIC ---
+        const shouldAutoSaveCharacter = extensionSettings.moduleSettings.autoSaveCharacter;
+        const shouldAutoSaveChat = extensionSettings.moduleSettings.autoSaveChat;
+        
+        console.log('STMTL: Character auto-save enabled:', shouldAutoSaveCharacter);
+        console.log('STMTL: Chat auto-save enabled:', shouldAutoSaveChat);
+        
+        shouldAutoSave = shouldAutoSaveCharacter || shouldAutoSaveChat;
+        
+        if (shouldAutoSave) {
+            console.log('STMTL: Proceeding with character auto-save...');
+            saveCurrentSettings(shouldAutoSaveCharacter, shouldAutoSaveChat, true);
+        }
     }
 
-    console.log('STMTL: Proceeding with auto-save...');
-
-    // Save only what's enabled for autosave, and mark as an auto-save event
-    saveCurrentSettings(shouldAutoSaveCharacter || shouldAutoSaveGroup, shouldAutoSaveChat, true);
+    if (!shouldAutoSave) {
+        console.log('STMTL: Skipping save - all auto-saves disabled');
+    }
 }
 
 /**
- * Update cached settings using only chat_metadata for character name
+ * Update cached settings
  */
 function updateCachedSettings() {
     const extensionSettings = getExtensionSettings();
@@ -1074,25 +1289,36 @@ function updateCachedSettings() {
     currentCharacterSettings = null;
     currentChatSettings = null;
     currentGroupSettings = null;
+    currentIndividualCharacterSettings = null;
 
-    // Check if we're in a group chat
-    const isGroupChat = !!window.selected_group;
+    // group detection
+    const isGroupChat = !!selected_group;
+    
+    console.log('STMTL: updateCachedSettings - isGroupChat:', isGroupChat);
 
     if (isGroupChat) {
+        // Load group chat settings
         if (extensionSettings.moduleSettings.enableGroupMemory && context.groupId) {
             currentGroupSettings = safeGetGroupSettings(context.groupId);
             console.log(`STMTL: Loaded group settings for group ID "${context.groupId}":`, currentGroupSettings);
         }
         
+        // Load individual character settings if either character memory is enabled OR the user explicitly prefers individual character settings in groups.
+        const shouldLoadIndividual = extensionSettings.moduleSettings.enableCharacterMemory || extensionSettings.moduleSettings.preferIndividualCharacterInGroup;
+        if (shouldLoadIndividual && context.activeCharacterInGroup) {
+            currentIndividualCharacterSettings = safeGetCharacterSettings(context.activeCharacterInGroup);
+            console.log(`STMTL: Loaded individual character settings for "${context.activeCharacterInGroup}":`, currentIndividualCharacterSettings);
+        }
+        
         if (extensionSettings.moduleSettings.enableChatMemory && context.chatId) {
-            const group = window.groups?.find(x => x.id === context.groupId);
+            const group = groups?.find(x => x.id === context.groupId);
             if (group?.chat_metadata) {
                 currentChatSettings = group.chat_metadata.STMTL || null;
                 console.log('STMTL: Loaded group chat settings:', currentChatSettings);
             }
         }
     } else {
-        // Single character
+        // Load single character settings
         const characterName = getCharacterNameForSettings();
 
         if (extensionSettings.moduleSettings.enableCharacterMemory && characterName) {
@@ -1112,17 +1338,21 @@ function updateCachedSettings() {
 
     console.log('STMTL: Cached settings updated', {
         characterName: context.characterName,
+        activeCharacterInGroup: context.activeCharacterInGroup,
         chatId: context.chatId,
         groupId: context.groupId,
         isGroupChat: isGroupChat,
         hasCharacterSettings: !!currentCharacterSettings,
+        hasIndividualCharacterSettings: !!currentIndividualCharacterSettings,
         hasChatSettings: !!currentChatSettings,
         hasGroupSettings: !!currentGroupSettings,
         characterMemoryEnabled: extensionSettings.moduleSettings.enableCharacterMemory,
         chatMemoryEnabled: extensionSettings.moduleSettings.enableChatMemory,
-        groupMemoryEnabled: extensionSettings.moduleSettings.enableGroupMemory
+        groupMemoryEnabled: extensionSettings.moduleSettings.enableGroupMemory,
+        preferIndividualInGroup: extensionSettings.moduleSettings.preferIndividualCharacterInGroup
     });
 }
+
 
 /**
  * Apply the appropriate settings based on priority
@@ -1134,31 +1364,49 @@ function applySettings() {
     }
 
     const extensionSettings = getExtensionSettings();
-    const isGroupChat = !!window.selected_group;
+    const isGroupChat = !!selected_group;
+    
+    console.log('STMTL: applySettings - isGroupChat:', isGroupChat);
+    
     let settingsToApply = null;
     let settingsSource = null;
 
     if (isGroupChat) {
-        // Group chat priority logic - NEW
-        if (extensionSettings.moduleSettings.preferGroupOverChat) {
+        // --- GROUP CHAT PRIORITY LOGIC ---
+        const preferIndividual = extensionSettings.moduleSettings.preferIndividualCharacterInGroup;
+        const preferGroupOverChat = extensionSettings.moduleSettings.preferGroupOverChat;
+        
+        if (preferIndividual && currentIndividualCharacterSettings) {
+            // Individual character settings have highest priority when enabled
+            settingsToApply = currentIndividualCharacterSettings;
+            settingsSource = 'individual character';
+        } else if (preferGroupOverChat) {
+            // Original group vs chat logic
             if (currentGroupSettings) {
                 settingsToApply = currentGroupSettings;
                 settingsSource = 'group';
             } else if (currentChatSettings) {
                 settingsToApply = currentChatSettings;
                 settingsSource = 'group chat (fallback)';
+            } else if (currentIndividualCharacterSettings) {
+                settingsToApply = currentIndividualCharacterSettings;
+                settingsSource = 'individual character (fallback)';
             }
         } else {
+            // Chat preferred over group
             if (currentChatSettings) {
                 settingsToApply = currentChatSettings;
                 settingsSource = 'group chat';
             } else if (currentGroupSettings) {
                 settingsToApply = currentGroupSettings;
                 settingsSource = 'group (fallback)';
+            } else if (currentIndividualCharacterSettings) {
+                settingsToApply = currentIndividualCharacterSettings;
+                settingsSource = 'individual character (fallback)';
             }
         }
     } else {
-        // Single character priority logic - ORIGINAL LOGIC PRESERVED
+        // --- SINGLE CHARACTER PRIORITY LOGIC ---
         if (extensionSettings.moduleSettings.preferCharacterOverChat) {
             if (currentCharacterSettings) {
                 settingsToApply = currentCharacterSettings;
@@ -1251,12 +1499,13 @@ function applySettings() {
 }
 
 /**
- * Save current model and temperature settings - using chat_metadata for character name
- * Settings must save and display properly in the popup
+ * Save current model and temperature settings - FIXED GROUP DETECTION
  */
 async function saveCurrentSettings(saveCharacter = true, saveChat = true, isAutoSave = false) {
     const extensionSettings = getExtensionSettings();
-    const isGroupChat = !!window.selected_group;
+    const isGroupChat = !!selected_group;
+    
+    console.log('STMTL: saveCurrentSettings - isGroupChat:', isGroupChat);
 
     if (!isExtensionEnabled) {
         if (extensionSettings.moduleSettings.showOtherNotifications) {
@@ -1291,6 +1540,7 @@ async function saveCurrentSettings(saveCharacter = true, saveChat = true, isAuto
     const savedTypes = [];
 
     if (isGroupChat) {
+        // --- GROUP CHAT SAVE LOGIC ---
         if (saveCharacter && extensionSettings.moduleSettings.enableGroupMemory && context.groupId) {
             const success = safeSetGroupSettings(context.groupId, settingsData);
             if (success) {
@@ -1302,7 +1552,7 @@ async function saveCurrentSettings(saveCharacter = true, saveChat = true, isAuto
         }
 
         if (saveChat && extensionSettings.moduleSettings.enableChatMemory && context.chatId) {
-            const group = window.groups?.find(x => x.id === context.groupId);
+            const group = groups?.find(x => x.id === context.groupId);
             if (group) {
                 if (!group.chat_metadata) {
                     group.chat_metadata = {};
@@ -1321,7 +1571,7 @@ async function saveCurrentSettings(saveCharacter = true, saveChat = true, isAuto
             }
         }
     } else {
-        // Single character logic
+        // --- SINGLE CHARACTER SAVE LOGIC ---
         const characterName = getCharacterNameForSettings();
         if (saveCharacter && extensionSettings.moduleSettings.enableCharacterMemory && characterName) {
             const success = safeSetCharacterSettings(characterName, settingsData);
@@ -1369,11 +1619,15 @@ async function saveCurrentSettings(saveCharacter = true, saveChat = true, isAuto
  */
 async function clearAllSettings() {
     const extensionSettings = getExtensionSettings();
-    const isGroupChat = !!window.selected_group;
+    const isGroupChat = !!selected_group;
+    
+    console.log('STMTL: clearAllSettings - isGroupChat:', isGroupChat);
+    
     let clearedCount = 0;
     const clearedTypes = [];
 
     if (isGroupChat) {
+        // --- GROUP CHAT CLEAR LOGIC ---
         const context = getCurrentExtensionContext();
         if (context.groupId) {
             const success = safeDeleteGroupSettings(context.groupId);
@@ -1384,8 +1638,18 @@ async function clearAllSettings() {
             }
         }
 
+        // Clear individual character settings in group chats
+        if (context.activeCharacterInGroup) {
+            const success = safeDeleteCharacterSettings(context.activeCharacterInGroup);
+            if (success) {
+                currentIndividualCharacterSettings = null;
+                clearedCount++;
+                clearedTypes.push('individual character');
+            }
+        }
+
         if (context.chatId) {
-            const group = window.groups?.find(x => x.id === context.groupId);
+            const group = groups?.find(x => x.id === context.groupId);
             if (group?.chat_metadata?.STMTL) {
                 delete group.chat_metadata.STMTL;
                 currentChatSettings = null;
@@ -1398,7 +1662,7 @@ async function clearAllSettings() {
             }
         }
     } else {
-        // Single character logic
+        // --- SINGLE CHARACTER CLEAR LOGIC ---
         const characterName = getCharacterNameForSettings();
         if (characterName) {
             const success = safeDeleteCharacterSettings(characterName);
@@ -1434,14 +1698,16 @@ async function clearAllSettings() {
 }
 
 /**
- * Clear character-specific settings - using chat_metadata for character name
+ * Clear character-specific settings
  */
 async function clearCharacterSettings() {
     const extensionSettings = getExtensionSettings();
-    const isGroupChat = !!window.selected_group;
+    const isGroupChat = !!selected_group;
+    
+    console.log('STMTL: clearCharacterSettings - isGroupChat:', isGroupChat);
 
     if (isGroupChat) {
-        // Clear group settings - NEW
+        // --- GROUP CHAT CLEAR LOGIC ---
         const context = getCurrentExtensionContext();
         if (context.groupId) {
             const success = safeDeleteGroupSettings(context.groupId);
@@ -1457,7 +1723,7 @@ async function clearCharacterSettings() {
             }
         }
     } else {
-        // Clear character settings - ORIGINAL LOGIC PRESERVED
+        // --- SINGLE CHARACTER CLEAR LOGIC ---
         const characterName = getCharacterNameForSettings();
         if (!characterName) return;
 
@@ -1480,13 +1746,16 @@ async function clearCharacterSettings() {
  */
 async function clearChatSettings() {
     const extensionSettings = getExtensionSettings();
-    const isGroupChat = !!window.selected_group;
+    const isGroupChat = !!selected_group;
+    
+    console.log('STMTL: clearChatSettings - isGroupChat:', isGroupChat);
+    
     const context = getCurrentExtensionContext();
     if (!context.chatId) return;
 
     if (isGroupChat) {
-        // Group logic remains the same...
-        const group = window.groups?.find(x => x.id === context.groupId);
+        // --- GROUP CHAT CLEAR LOGIC ---
+        const group = groups?.find(x => x.id === context.groupId);
         if (group?.chat_metadata?.STMTL) {
             delete group.chat_metadata.STMTL;
             currentChatSettings = null;
@@ -1500,6 +1769,7 @@ async function clearChatSettings() {
             }
         }
     } else {
+        // --- SINGLE CHARACTER CLEAR LOGIC ---
         if (getChatMetadataProperty('STMTL')) {
             const success = deleteChatMetadataProperty('STMTL');
             if (success) {
@@ -1537,7 +1807,7 @@ function triggerMetadataSave() {
 function migrateOldData() {
     const extensionSettings = getExtensionSettings();
 
-    if (extensionSettings.migrationVersion >= 5) { // Incremented version (group support)
+    if (extensionSettings.migrationVersion >= 6) {
         return;
     }
     
@@ -1548,12 +1818,6 @@ function migrateOldData() {
         extensionSettings.moduleSettings.showOtherNotifications = oldNotificationSetting;
         delete extensionSettings.moduleSettings.showNotifications;
         console.log('STMTL: Migrated legacy notification setting.');
-    }
-
-
-    if (extensionSettings.migrationVersion >= 3) {  // Incremented version
-        console.log('STMTL: Migration already completed');
-        return;
     }
 
     console.log('STMTL: Starting data migration...');
@@ -1615,15 +1879,20 @@ function migrateOldData() {
         console.log('STMTL: Added group auto-save setting.');
     }
 
+    if (!extensionSettings.moduleSettings.hasOwnProperty('preferIndividualCharacterInGroup')) {
+        extensionSettings.moduleSettings.preferIndividualCharacterInGroup = false;
+        console.log('STMTL: Added individual character preference setting for groups.');
+    }
+
     if (!extensionSettings.groupSettings) {
         extensionSettings.groupSettings = {};
         console.log('STMTL: Added group settings storage.');
     }
 
-    extensionSettings.migrationVersion = 5;  // Incremented version for group support
+    extensionSettings.migrationVersion = 6;
     saveSettingsDebounced();
 
-    console.log('STMTL: Data migration completed with group support');
+    console.log('STMTL: Data migration completed with individual character preference support');
 }
 
 function migrateAutoSaveSettings() {
@@ -1709,5 +1978,5 @@ $(document).ready(() => {
     // Fallback initialization
     setTimeout(init, 1500);
 
-    console.log('STMTL: Ready to initialize with chat_metadata support');
+    console.log('STMTL: Ready to initialize');
 });
