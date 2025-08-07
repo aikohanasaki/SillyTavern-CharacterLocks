@@ -1,103 +1,127 @@
-# 🌡️ Model Temp Locks (A SillyTavern Extension)
+# 🌡️ Model Temp Locks (STMTL Extension for SillyTavern)
 
-Your AI chat settings, but smarter. This extension remembers what model and temperature you like to use for different characters, chats, and even group conversations, so you don't have to keep tweaking things every time.
+![Status: Feature Complete](https://img.shields.io/badge/Status-Feature%20Complete-brightgreen)
+![Maintenance: Active](https://img.shields.io/badge/Maintenance-Active-blue)
 
-## ⚠️ Quick heads up
+A SillyTavern extension that automatically remembers and applies your preferred model and temperature settings for different characters, chats, and group conversations. No more constantly tweaking settings - just set them once and let the extension handle the rest.
 
-This only works with Chat Completion APIs (like OpenAI, Claude, OpenRouter). If you're using something else, it'll just sit there doing nothing. Also, it only remembers your model and temperature - nothing else! (If you need to save that many settings, you are better off with ST's built in character preset matching.)
+> **📋 Project Status**: This extension is considered feature-complete and stable as of version 3.0.1. While major new features are not planned, bug reports and compatibility updates are welcome!
 
-## What it does
+## ⚠️ Requirements
 
-**Character Memory** - Remembers model/temp for each character you chat with.
-**Chat Memory** - Remembers model/temp for specific conversations.
-**Group Memory** - Remembers model/temp for group chats, with smart handling for multiple characters.
+- **Chat Completion API only**: Works with OpenAI API-compatible chat completion endpoints
+- **Supported providers**: OpenAI, Claude, WindowAI, OpenRouter, AI21, Scale, Google (Makersuite), Mistral AI, Custom, Cohere, Perplexity, Groq, 01.AI, NanoGPT, DeepSeek, BlockEntropy
+- **What it saves**: Model selection and temperature only (if you need more comprehensive presets, use SillyTavern's built-in character preset matching)
 
-You can use any combination of these, and decide which one takes priority when they conflict. Perfect for when you want different vibes for solo chats vs group conversations!
+## 🚀 Features
 
-## Setting it up
+### Memory Types
+- **Character Memory** - Remembers settings for each character in single chats
+- **Chat Memory** - Remembers settings for specific conversations (both single and group)
+- **Group Memory** - Remembers settings for entire group chats
+- **Individual Character Memory in Groups** - Remembers settings for specific characters even within group chats
 
-First, open the extension by clicking "Model/Temp Settings" in your Extensions menu. What you see depends on whether you're in a regular chat or a group chat:
+### Smart Priority System
+- **Single Chats**: Choose whether character settings or chat settings take priority
+- **Group Chats**: Choose whether group-wide settings or chat-specific settings take priority
+- **Individual Characters in Groups**: Optionally give highest priority to individual character settings within groups
 
-### Single Character Chats
+### Auto-Save Options
+- Auto-save when you send messages or generate responses
+- Separate auto-save controls for character/group settings and chat settings
+- Manual save options always available
 
-**Notification options:**
-- **Show auto-save notifications**: Get a small pop-up confirming when your settings have been auto-saved.
-- **Show other notifications**: Get pop-ups for other events, like when settings are applied, cleared, or if there's an API mismatch.
+### Notification Control
+- Toggle auto-save notifications
+- Toggle other notifications (API status, settings applied, etc.)
 
-**Memory options:**
-- Turn on "Remember per character" if you want different characters to have their own preferred settings
-- Turn on "Remember per chat" if you want individual conversations to remember their own settings
+## 📖 How to Use
 
-**Auto-save options:**
-- Auto-save character settings
-- Auto-save chat settings
-- **DEFAULT**: Neither (manual save only)
+### Opening the Extension
+Click **"Model/Temp Settings"** in your Extensions menu to open the settings panel.
 
-**Priority setting:**
-- Choose "Prefer character settings over chat" if you want character preferences to take priority
-- Leave it off if chat settings should take priority
+### Setting Up Your Preferences
 
-### Group Chats
+The settings panel adapts based on whether you're in a single chat or group chat:
 
-**Memory options:**
-- Turn on "Remember per group" if you want different group chats to have their own preferred settings
-- Turn on "Remember per chat" if you want individual group conversations to remember their own settings
+**Single Character Chats:**
+- ✅ **Remember per character** - Each character gets their own model/temp preferences
+- ✅ **Remember per chat** - Individual conversations remember their settings
+- ✅ **Prefer character settings over chat** - Character preferences override chat preferences
+- ✅ **Auto-save character settings** - Automatically save when chatting with characters
+- ✅ **Auto-save chat settings** - Automatically save chat-specific preferences
 
-**Auto-save options:**
-- Auto-save group settings
-- Auto-save chat settings
+**Group Chats:**
+- ✅ **Remember per group** - Each group chat gets its own default settings
+- ✅ **Remember per chat** - Individual group conversations remember their settings
+- ✅ **Prefer group settings over chat** - Group defaults override chat-specific settings
+- ✅ **Prefer individual character settings** - Remember settings for each character in groups (highest priority)
+- ✅ **Auto-save group settings** - Automatically save group-wide preferences
+- ✅ **Auto-save chat settings** - Automatically save chat-specific preferences
 
-**Priority settings:**
-- Choose "Prefer group settings over chat" if you want group-wide preferences to take priority over individual chat settings
-- Turn on "Prefer individual character settings" if you want the extension to remember settings for each character even within groups (this gets the highest priority when enabled)
+**Notification Options:**
+- ✅ **Show auto-save notifications** - Get notified when settings are auto-saved
+- ✅ **Show other notifications** - Get notified about API status, settings applied, etc.
 
-## How to save your settings
+### Saving Settings
 
-**Save manually** (Aiko recommends this for character setups)
-When you've got your model and temperature set how you like them, hit one of these buttons:
-- "Set Both" saves to both character/group and chat
-- "Set Character" saves just for this character (or group in group chats)
-- "Set Chat" saves just for this conversation
+**Manual Saving (Recommended for initial setup):**
+- **Set Character** / **Set Group** - Save current model/temp for this character or group
+- **Set Chat** - Save current model/temp for this specific conversation
+- **Set Both** / **Set All** - Save to both character/group and chat
+- **Set Active Char** (group chats only) - Save settings for the currently active character
 
-**Let it save automatically** (Aiko recommends this for ongoing chats)
-Once you turn on auto-save, it'll remember your settings whenever you send a message or generate a response. Just set things how you want and chat normally.
+**Auto-Saving (Recommended for ongoing use):**
+- Enable auto-save options and your settings will be remembered automatically as you chat
+- Settings are saved when you send messages or generate responses
 
-## Managing your saved stuff
+### Managing Saved Settings
 
-**Getting rid of settings:**
-- "Clear Character" removes what you saved for this character/group
-- "Clear Chat" removes what you saved for this conversation
-- "Clear Both" wipes everything clean for the current context
+**Viewing Current Settings:**
+The panel shows you what's currently saved for:
+- Character/Group settings
+- Individual character settings (in group chats)
+- Chat settings
+- When each was last saved
 
-**Seeing what's saved:**
-The extension panel shows you what settings are currently saved and when they were last updated. In group chats, you'll see both group-wide settings and individual character settings when available. There's also a little indicator that tells you if everything's working with your current API setup.
+**Clearing Settings:**
+- **Clear Character** / **Clear Group** - Remove saved character or group settings
+- **Clear Chat** - Remove saved chat settings
+- **Clear Active Char** (group chats only) - Remove settings for the active character
+- **Clear All** - Remove all saved settings for the current context
 
-## Use Cases
+## 🎯 Common Use Cases
 
-**If you're character-focused:**
-Turn on character memory and autosave, then set up each character's preferred model and temperature. When you switch between characters, your settings will automatically change to match.
+### Character-Focused Setup
+1. Enable "Remember per character" and "Auto-save character settings"
+2. Set up each character with their preferred model and temperature
+3. The extension automatically switches settings when you change characters
 
-**If you care more about individual chats:**
-Enable chat memory and autosave. Each conversation can have its own vibe, whether it's a solo chat or a group conversation.
+### Chat-Focused Setup
+1. Enable "Remember per chat" and "Auto-save chat settings"
+2. Each conversation develops its own preferred settings over time
+3. Perfect for when you want different vibes for different conversations
 
-**Group chat enthusiast:**
-Set up group-wide defaults for your favorite group conversations. Maybe your "Writing Workshop" group uses a creative model while your "Tech Support" group uses something more focused.
+### Group Chat Management
+1. Enable "Remember per group" for consistent group defaults
+2. Enable "Remember per chat" for conversation-specific overrides
+3. Optionally enable "Prefer individual character settings" to have different settings for each character even within the same group
 
-**Advanced group management:**
-Enable individual character preferences in groups! This lets you have different settings for each character even when they're all in the same group chat. Perfect for when you want your serious advisor character to use a different model than your silly comic relief character, even in the same conversation.
+### Advanced Mixed Setup
+- Use all features together for maximum flexibility
+- Set character defaults, override with group settings, fine-tune with chat settings
+- The extension handles all the priority logic based on your preferences
 
-**Mix and match everything:**
-Use all the features! Set up character defaults, override them with group settings, then fine-tune individual chats when you need something completely different. Model Temp Locks handles all the priority logic based on your preferences.
+## 🔧 Technical Details
 
-## Technical Requirements/Details
+**API Compatibility Check**: The extension automatically detects if you're using a compatible API and shows status in the settings panel.
 
-**Works with these APIs:** OpenAI, Claude, WindowAI, OpenRouter, AI21, Scale, Google (Makersuite), Mistral AI, Custom, Cohere, Perplexity, Groq, 01.AI, NanoGPT, DeepSeek, BlockEntropy
+**Settings Storage**: 
+- Character and group settings are stored in extension settings
+- Chat settings are stored in chat metadata
+- All settings include model, temperature, completion source, and timestamp
 
-**What you need:** Your main API has to be set to "Chat Completion" mode
-
-**Group chat detection:** Automatically detects when you're in a group chat and switches to group-appropriate options
-
-**Updates:** If you're upgrading from earlier versions, your existing settings will carry over automatically. New group features are added seamlessly alongside your existing character and chat preferences.
+**Group Chat Detection**: Automatically detects group chats and shows appropriate options.
 
 ---
 
