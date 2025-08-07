@@ -273,13 +273,10 @@ class StorageAdapter {
         const settings = extensionSettings.characterSettings?.[normalizedName] || null;
         
         if (settings) {
-            console.log(`STMTL: Retrieved character settings for normalized name "${normalizedName}"`);
+            console.log(`STMTL: Retrieved character settings for "${normalizedName}"`);
             console.log('STMTL: Settings retrieved:', settings);
         } else {
-            console.log(`STMTL: No settings found for normalized name "${normalizedName}"`);
-            // Debug: show all available character keys
-            const availableKeys = Object.keys(extensionSettings.characterSettings || {});
-            console.log('STMTL: Available character keys:', availableKeys);
+            console.log(`STMTL: No settings found for "${normalizedName}"`);
         }
         
         return settings;
@@ -298,10 +295,8 @@ class StorageAdapter {
             extensionSettings.characterSettings = {};
         }
 
-        // Don't automatically add savedAt - let caller control this
         extensionSettings.characterSettings[normalizedName] = settings;
         
-        console.log(`STMTL: Saved character settings for normalized name "${normalizedName}"`);
         console.log('STMTL: Settings saved:', settings);
 
         this.saveExtensionSettings();
@@ -319,12 +314,12 @@ class StorageAdapter {
 
         if (extensionSettings.characterSettings?.[normalizedName]) {
             delete extensionSettings.characterSettings[normalizedName];
-            console.log(`STMTL: Deleted character settings for normalized name "${normalizedName}"`);
+            console.log(`STMTL: Deleted character settings for "${normalizedName}"`);
             this.saveExtensionSettings();
             return true;
         }
 
-        console.log(`STMTL: No settings to delete for normalized name "${normalizedName}"`);
+        console.log(`STMTL: No settings to delete for "${normalizedName}"`);
         return false;
     }
 
@@ -783,13 +778,6 @@ class SettingsManager {
         }
 
         this._showSaveNotification(savedCount, savedTypes, isAutoSave);
-        if (savedCount > 0) {
-            // Log what was saved, where it was saved, and the values
-            console.log(`[STMTL] Saved settings via popup:`, {
-                locations: savedTypes,
-                values: uiSettings
-            });
-        }
         return savedCount > 0;        
     }
 
