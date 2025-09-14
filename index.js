@@ -1,9 +1,6 @@
-// STMTL Extension - Single File Refactored Version
-// This refactored version addresses the main architectural issues while keeping everything in one file
-
 import { eventSource, event_types, saveSettingsDebounced, chat_metadata, name2, systemUserName, neutralCharacterName, characters } from '../../../../script.js';
 import { extension_settings, saveMetadataDebounced, getContext } from '../../../extensions.js';
-import { Popup, POPUP_TYPE, POPUP_RESULT } from '../../../popup.js';
+import { Popup, POPUP_TYPE } from '../../../popup.js';
 import { lodash, moment, Handlebars, DOMPurify, morphdom } from '../../../../lib.js';
 import { selected_group, groups } from '../../../group-chats.js';
 
@@ -30,7 +27,6 @@ const SELECTORS = {
     mainApi: '#main_api',
     completionSource: '#chat_completion_source',
     menuItem: '#stmtl-menu-item',
-    extensionsMenu: '#extensionsMenu .list-group',
     modelOpenai: '#model_openai_select',
     modelClaude: '#model_claude_select',
     modelWindowai: '#model_windowai_select',
@@ -647,7 +643,7 @@ class SettingsManager {
             this.currentSettings.group = this.storage.getGroupSettings(context.groupId);
         }
 
-        if (prefs.enableChatMemory && context.chatId) {
+        if (prefs.enableChatMemory && context.groupId) {
             this.currentSettings.chat = this.storage.getGroupChatSettings(context.groupId);
         }
 
@@ -713,7 +709,7 @@ class SettingsManager {
         if (settings.model) {
             if (apiInfo.completionSource === 'custom') {
                 if ($(SELECTORS.customModelId).length) {
-                    $(SELECTORS.customModelId).val(settings.model).trigger('change');
+                    $(SELECTORS.customModelId).val(settings.model).trigger('input').trigger('change');
                 }
                 if ($(SELECTORS.modelCustomSelect).length) {
                     $(SELECTORS.modelCustomSelect).val(settings.model).trigger('change');
@@ -728,10 +724,10 @@ class SettingsManager {
         // Apply temperature setting
         if (lodash.isNumber(settings.temperature)) {
             if ($(selectors.temp).length) {
-                $(selectors.temp).val(settings.temperature);
+                $(selectors.temp).val(settings.temperature).trigger('input').trigger('change');
             }
             if ($(selectors.tempCounter).length) {
-                $(selectors.tempCounter).val(settings.temperature);
+                $(selectors.tempCounter).val(settings.temperature).trigger('change');
             }
         }
 
@@ -828,7 +824,7 @@ class SettingsManager {
 
         if (clearedCount > 0) {
             const typeText = clearedTypes.join(' & ');
-            toastr.info(`${typeText} settings cleared`, MODULE_NAME);
+            this._showToastr(`${typeText} settings cleared`, 'info');
         }
 
         return clearedCount;
@@ -865,7 +861,15 @@ class SettingsManager {
         if (showNotification) {
             const typeText = savedTypes.join(' & ');
             const messagePrefix = isAutoSave ? 'Auto-saved' : 'Saved';
-            toastr.success(`${messagePrefix} ${typeText} settings`, MODULE_NAME);
+            this._showToastr(`${messagePrefix} ${typeText} settings`, 'success');
+        }
+    }
+
+    _showToastr(message, type) {
+        if (typeof toastr !== 'undefined') {
+            toastr[type](message, MODULE_NAME);
+        } else {
+            console.log(`STMTL: ${message}`);
         }
     }
 }
@@ -924,19 +928,12 @@ function checkApiCompatibility() {
     let isCompatible = false;
 
     try {
-        if (typeof window.getGeneratingApi === 'function') {
-            const currentApi = window.getGeneratingApi();
-            isCompatible = window.main_api === 'openai' && SUPPORTED_COMPLETION_SOURCES.includes(currentApi);
-        } else {
-            const mainApi = $(SELECTORS.mainApi).val();
-            const completionSource = $(SELECTORS.completionSource).val();
-            isCompatible = mainApi === 'openai' && SUPPORTED_COMPLETION_SOURCES.includes(completionSource);
-        }
+        const completionSource = $(SELECTORS.completionSource).val();
+        isCompatible = SUPPORTED_COMPLETION_SOURCES.includes(completionSource);
     } catch (e) {
         console.warn('STMTL: Error checking API compatibility:', e);
-        const mainApi = $(SELECTORS.mainApi).val();
         const completionSource = $(SELECTORS.completionSource).val();
-        isCompatible = mainApi === 'openai' && SUPPORTED_COMPLETION_SOURCES.includes(completionSource);
+        isCompatible = SUPPORTED_COMPLETION_SOURCES.includes(completionSource);
     }
 
     if (isCompatible !== isExtensionEnabled) {
@@ -944,10 +941,12 @@ function checkApiCompatibility() {
         const extensionSettings = storageAdapter?.getExtensionSettings();
         
         if (extensionSettings?.moduleSettings.showOtherNotifications) {
-            if (isCompatible) {
-                toastr.info('STMTL extension enabled for Chat Completion API', MODULE_NAME);
-            } else {
-                toastr.warning('STMTL requires Chat Completion API', MODULE_NAME);
+            if (typeof toastr !== 'undefined') {
+                if (isCompatible) {
+                    toastr.info('STMTL extension enabled for Chat Completion API', MODULE_NAME);
+                } else {
+                    toastr.warning('STMTL requires Chat Completion API', MODULE_NAME);
+                }
             }
         }
     }
@@ -960,11 +959,11 @@ function formatSettingsInfo(settings) {
         return isExtensionEnabled ? 'No saved settings' : 'Requires Chat Completion API';
     }
 
-    const formattedDate = moment(settings.savedAt).format('MMM D, YYYY [at] h:mm A');
+    const saved = settings.savedAt ? moment(settings.savedAt).format('MMM D, YYYY [at] h:mm A') : 'Unknown';
     return `Model: ${settings.model || 'N/A'}
 Temp: ${settings.temperature || 'N/A'}
 Source: ${settings.completionSource || 'N/A'}
-Saved: ${formattedDate}`;
+Saved: ${saved}`;
 }
 
 // ===== TEMPLATE AND UI =====
@@ -1125,12 +1124,20 @@ function refreshPopupContent() {
         const tempContainer = document.createElement('div');
         tempContainer.innerHTML = newContent;
 
-        morphdom(currentPopupInstance.content, tempContainer);
+        const contentElement = currentPopupInstance.dlg.querySelector('.dialogue-content');
+        if (contentElement) {
+            morphdom(contentElement, tempContainer);
+        } else {
+            // Fallback: close and reopen popup
+            throw new Error('Content element not found');
+        }
 
         console.log('STMTL: Popup content refreshed');
     } catch (error) {
         console.error('STMTL: Error refreshing popup content:', error);
-        currentPopupInstance.completeCancelled();
+        if (currentPopupInstance && typeof currentPopupInstance.completeCancelled === 'function') {
+            currentPopupInstance.completeCancelled();
+        }
         setTimeout(() => showPopup(), 100);
     }
 }
@@ -1182,12 +1189,16 @@ async function showPopup() {
                 if (isGroupChat) {
                     if (context.groupId && storageAdapter.deleteGroupSettings(context.groupId)) {
                         settingsManager.currentSettings.group = null;
-                        toastr.info('Group settings cleared', MODULE_NAME);
+                        if (typeof toastr !== 'undefined') {
+                            toastr.info('Group settings cleared', MODULE_NAME);
+                        }
                     }
                 } else {
                     if (context.characterName && storageAdapter.deleteCharacterSettings(context.characterName)) {
                         settingsManager.currentSettings.character = null;
-                        toastr.info('Character settings cleared', MODULE_NAME);
+                        if (typeof toastr !== 'undefined') {
+                            toastr.info('Character settings cleared', MODULE_NAME);
+                        }
                     }
                 }
                 refreshPopupContent();
@@ -1200,12 +1211,16 @@ async function showPopup() {
                 if (isGroupChat) {
                     if (storageAdapter.deleteGroupChatSettings(context.groupId)) {
                         settingsManager.currentSettings.chat = null;
-                        toastr.info('Group chat settings cleared', MODULE_NAME);
+                        if (typeof toastr !== 'undefined') {
+                            toastr.info('Group chat settings cleared', MODULE_NAME);
+                        }
                     }
                 } else {
                     if (storageAdapter.deleteChatSettings()) {
                         settingsManager.currentSettings.chat = null;
-                        toastr.info('Chat settings cleared', MODULE_NAME);
+                        if (typeof toastr !== 'undefined') {
+                            toastr.info('Chat settings cleared', MODULE_NAME);
+                        }
                     }
                 }
                 refreshPopupContent();
@@ -1231,7 +1246,9 @@ async function showPopup() {
                     settingsManager.saveCurrentSettingsForCharacter(context.activeCharacterInGroup, false);
                     settingsManager.loadCurrentSettings();
                 } else {
-                    toastr.warning('No active character detected in the group', MODULE_NAME);
+                    if (typeof toastr !== 'undefined') {
+                        toastr.warning('No active character detected in the group', MODULE_NAME);
+                    }
                 }
                 refreshPopupContent();
             }
@@ -1246,10 +1263,14 @@ async function showPopup() {
                 if (context.activeCharacterInGroup) {
                     if (storageAdapter.deleteCharacterSettings(context.activeCharacterInGroup)) {
                         settingsManager.currentSettings.individual = null;
-                        toastr.info(`Cleared individual settings for ${context.activeCharacterInGroup}`, MODULE_NAME);
+                        if (typeof toastr !== 'undefined') {
+                            toastr.info(`Cleared individual settings for ${context.activeCharacterInGroup}`, MODULE_NAME);
+                        }
                     }
                 } else {
-                    toastr.warning('No active character detected', MODULE_NAME);
+                    if (typeof toastr !== 'undefined') {
+                        toastr.warning('No active character detected', MODULE_NAME);
+                    }
                 }
                 refreshPopupContent();
             }
@@ -1307,18 +1328,20 @@ function handlePopupClose(popup) {
             };
         }
 
+        // Build newValues keyed by checkboxId
         const newValues = lodash.mapValues(checkboxMappings, (settingKey, checkboxId) => {
             return popupElement.querySelector(`#${checkboxId}`)?.checked ?? extensionSettings.moduleSettings[settingKey];
         });
 
-        const oldValues = lodash.pick(extensionSettings.moduleSettings, lodash.values(checkboxMappings));
-        const valuesMap = lodash.invert(checkboxMappings);
-        const newValuesForComparison = lodash.mapKeys(newValues, (value, key) => valuesMap[key]);
+        // Map newValues keys to setting keys for a fair comparison
+        const newValuesMapped = lodash.mapKeys(newValues, (value, checkboxId) => checkboxMappings[checkboxId]);
 
-        const changed = !lodash.isEqual(oldValues, newValuesForComparison);
+        // Compare to old values (also keyed by setting keys)
+        const oldValues = lodash.pick(extensionSettings.moduleSettings, Object.values(checkboxMappings));
+        const changed = !lodash.isEqual(oldValues, newValuesMapped);
 
         if (changed) {
-            lodash.merge(extensionSettings.moduleSettings, lodash.mapKeys(newValues, (value, key) => checkboxMappings[key]));
+            lodash.merge(extensionSettings.moduleSettings, newValuesMapped);
             storageAdapter.saveExtensionSettings();
             console.log('STMTL: Settings updated from popup');
         }
@@ -1427,9 +1450,8 @@ function setupEventListeners() {
                         }
 
                         if (isAutoSaveActive) {
-                            console.log(`STMTL: ${eventName} - Auto-save is active, applying stored settings.`);
-                            settingsManager.loadCurrentSettings();
-                            settingsManager.applySettings();
+                            console.log(`STMTL: ${eventName} - Auto-save is active, preparing to save current settings.`);
+                            // Don't re-apply stored settings during generation - only save current settings
                         }
 
                         if (isAutoSaveActive && isExtensionEnabled) {
