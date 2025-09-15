@@ -683,10 +683,14 @@ class SettingsManager {
         this.chatContext.invalidate();
         this.loadCurrentSettings();
 
-        // Apply settings automatically if memory features are enabled
-        // This means user wants settings to be applied when switching contexts
+        // Reset the applying flag in case it got stuck
+        isApplyingSettings = false;
+
+        // Apply settings automatically when switching contexts
         const shouldApplySettings = this._shouldApplySettingsAutomatically();
+        console.log('STMTL: shouldApplySettings:', shouldApplySettings, 'isApplyingSettings:', isApplyingSettings);
         if (shouldApplySettings && !isApplyingSettings) {
+            console.log('STMTL: Applying settings automatically on context change');
             this.applySettings();
         } else {
             console.log('STMTL: Skipping automatic settings application - memory disabled or currently applying');
@@ -695,33 +699,49 @@ class SettingsManager {
 
     applySettings() {
         const resolved = this.getSettingsToApply();
-        
+
         if (!resolved.settings) {
             console.log('STMTL: No settings to apply');
             return false;
         }
 
         console.log(`STMTL: Applying ${resolved.source} settings:`, resolved.settings);
-        return this._applySettingsToUI(resolved.settings);
+        const result = this._applySettingsToUI(resolved.settings);
+        console.log('STMTL: Settings application result:', result);
+        return result;
     }
 
     _applySettingsToUI(settings) {
         const apiInfo = getCurrentApiInfo();
+        console.log('STMTL: _applySettingsToUI called with:', settings);
+        console.log('STMTL: Current API info:', apiInfo);
 
         // If the saved settings have a specific engine and it doesn't match the current one, change the engine in the UI.
         if (settings.completionSource && settings.completionSource !== apiInfo.completionSource) {
-            console.log(`STMTL: Applying completion source from settings: ${settings.completionSource}`);
 
             // Set flag to prevent feedback loop when changing completion source
             isApplyingSettings = true;
+
+            // Set up one-time listener for completion source change
+            const handleSourceChanged = () => {
+                eventSource.removeListener(event_types.CHATCOMPLETION_SOURCE_CHANGED, handleSourceChanged);
+                this._applyModelAndTemperature(settings);
+                isApplyingSettings = false;
+            };
+
+            eventSource.on(event_types.CHATCOMPLETION_SOURCE_CHANGED, handleSourceChanged);
+
             // Set the completion source dropdown to the saved value and trigger the 'change' event.
             $(SELECTORS.completionSource).val(settings.completionSource).trigger('change');
-            // Reset flag after a short delay to allow the change event to complete
-            setTimeout(() => { isApplyingSettings = false; }, 200);
             return true;
         }
 
         // If we've reached this point, the completion source is correct. Now apply the model and temperature.
+        return this._applyModelAndTemperature(settings);
+    }
+
+    _applyModelAndTemperature(settings) {
+        const apiInfo = getCurrentApiInfo();
         const selectors = getApiSelectors(apiInfo.completionSource);
 
         // Apply model setting
@@ -801,7 +821,6 @@ class SettingsManager {
         
         if (this.storage.setCharacterSettings(characterName, uiSettings)) {
             this._showSaveNotification(1, [`character: ${characterName}`], isAutoSave);
-            console.log(`[STMTL] Saved settings for character "${characterName}" via popup:`, uiSettings);
             return true;
         }
         return false;
@@ -923,6 +942,9 @@ function getApiSelectors(completionSource = null) {
         completionSource = $(SELECTORS.completionSource).val();
     }
 
+    // For chat completion sources, temperature is controlled by the main OpenAI temperature sliders
+    // regardless of the specific completion source (openai, claude, openrouter, etc.)
+    // This is because they all use the same OpenAI-compatible API interface
     return {
         model: MODEL_SELECTOR_MAP[completionSource] || SELECTORS.modelOpenai,
         temp: SELECTORS.tempOpenai,
@@ -936,17 +958,19 @@ function getCurrentApiInfo() {
         let model = 'unknown';
         let completionSource = 'unknown';
 
-        if (typeof window.getGeneratingApi === 'function') {
-            api = window.getGeneratingApi();
-        } else {
-            api = $(SELECTORS.mainApi).val() || 'unknown';
-        }
+        // Get the main API
+        api = $(SELECTORS.mainApi).val() || 'unknown';
 
-        if (typeof window.getGeneratingModel === 'function') {
-            model = window.getGeneratingModel();
-        }
-
+        // Get the completion source (for OpenAI-compatible APIs)
         completionSource = $(SELECTORS.completionSource).val() || api;
+
+        // Get current model based on the completion source
+        const selectors = getApiSelectors(completionSource);
+        if (completionSource === 'custom') {
+            model = $(SELECTORS.customModelId).val() || $(SELECTORS.modelCustomSelect).val() || '';
+        } else {
+            model = $(selectors.model).val() || '';
+        }
 
         return { api, model, completionSource };
     } catch (e) {
@@ -965,7 +989,6 @@ function checkApiCompatibility() {
     try {
         const mainApi = $(SELECTORS.mainApi).val();
         // Check if main API is 'openai' (which covers all chat completion APIs)
-        // This is more future-proof than maintaining a hardcoded list of completion sources
         isCompatible = mainApi === 'openai';
     } catch (e) {
         console.warn('STMTL: Error checking API compatibility:', e);
@@ -1169,7 +1192,6 @@ function refreshPopupContent() {
             throw new Error('Content element not found');
         }
 
-        console.log('STMTL: Popup content refreshed');
     } catch (error) {
         console.error('STMTL: Error refreshing popup content:', error);
         if (currentPopupInstance && typeof currentPopupInstance.completeCancelled === 'function') {
@@ -1380,7 +1402,6 @@ function handlePopupClose(popup) {
         if (changed) {
             lodash.merge(extensionSettings.moduleSettings, newValuesMapped);
             storageAdapter.saveExtensionSettings();
-            console.log('STMTL: Settings updated from popup');
         }
     } catch (error) {
         console.error('STMTL: Error handling popup close:', error);
@@ -1432,8 +1453,6 @@ function setupEventListeners() {
                 setTimeout(registerSillyTavernEvents, 1000);
                 return;
             }
-
-            console.log('STMTL: Setting up event listeners');
 
             eventSource.on(event_types.CHARACTER_SELECTED, onCharacterChanged);
             eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
@@ -1659,7 +1678,7 @@ async function init() {
     if (hasInitialized) return;
     hasInitialized = true;
     
-    console.log('STMTL: Initializing refactored extension');
+    console.log('STMTL: Initializing extension');
 
     addPopupWrapStyle();
 
@@ -1669,7 +1688,6 @@ async function init() {
 
     while (attempts < maxAttempts) {
         if ($(SELECTORS.mainApi).length > 0 && eventSource && typeof Popup !== 'undefined') {
-            console.log('STMTL: SillyTavern UI and Popup system detected');
             break;
         }
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -1700,7 +1718,7 @@ async function init() {
         console.log('STMTL: Initial context loaded');
     }, 1000);
 
-    console.log('STMTL: Refactored extension loaded successfully');
+    console.log('STMTL: extension loaded successfully');
 }
 
 // ===== BOOTSTRAP =====
@@ -1711,5 +1729,4 @@ $(document).ready(() => {
     }
 
     setTimeout(init, 1500);
-    console.log('STMTL: Ready to initialize (refactored version)');
 });
