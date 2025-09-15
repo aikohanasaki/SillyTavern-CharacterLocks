@@ -29,10 +29,8 @@ const SELECTORS = {
     menuItem: '#stmtl-menu-item',
     modelOpenai: '#model_openai_select',
     modelClaude: '#model_claude_select',
-    modelWindowai: '#model_windowai_select',
     modelOpenrouter: '#model_openrouter_select',
     modelAi21: '#model_ai21_select',
-    modelScale: '#model_scale_select',
     modelGoogle: '#model_google_select',
     modelMistralai: '#model_mistralai_select',
     customModelId: '#custom_model_id',
@@ -43,7 +41,15 @@ const SELECTORS = {
     model01ai: '#model_01ai_select',
     modelNanogpt: '#model_nanogpt_select',
     modelDeepseek: '#model_deepseek_select',
-    modelBlockentropy: '#model_blockentropy_select',
+    modelVertexai: '#model_vertexai_select',
+    modelAimlapi: '#model_aimlapi_select',
+    modelXai: '#model_xai_select',
+    modelPollinations: '#model_pollinations_select',
+    modelMoonshot: '#model_moonshot_select',
+    modelFireworks: '#model_fireworks_select',
+    modelCometapi: '#model_cometapi_select',
+    modelAzureOpenai: '#model_azure_openai_select',
+    modelElectronhub: '#model_electronhub_select',
     tempOpenai: '#temp_openai',
     tempCounterOpenai: '#temp_counter_openai'
 };
@@ -52,10 +58,8 @@ const SELECTORS = {
 const MODEL_SELECTOR_MAP = {
     'openai': SELECTORS.modelOpenai,
     'claude': SELECTORS.modelClaude,
-    'windowai': SELECTORS.modelWindowai,
     'openrouter': SELECTORS.modelOpenrouter,
     'ai21': SELECTORS.modelAi21,
-    'scale': SELECTORS.modelScale,
     'makersuite': SELECTORS.modelGoogle,
     'mistralai': SELECTORS.modelMistralai,
     'custom': SELECTORS.customModelId,
@@ -65,7 +69,15 @@ const MODEL_SELECTOR_MAP = {
     '01ai': SELECTORS.model01ai,
     'nanogpt': SELECTORS.modelNanogpt,
     'deepseek': SELECTORS.modelDeepseek,
-    'blockentropy': SELECTORS.modelBlockentropy
+    'vertexai': SELECTORS.modelVertexai,
+    'aimlapi': SELECTORS.modelAimlapi,
+    'xai': SELECTORS.modelXai,
+    'pollinations': SELECTORS.modelPollinations,
+    'moonshot': SELECTORS.modelMoonshot,
+    'fireworks': SELECTORS.modelFireworks,
+    'cometapi': SELECTORS.modelCometapi,
+    'azure_openai': SELECTORS.modelAzureOpenai,
+    'electronhub': SELECTORS.modelElectronhub
 };
 
 const DEFAULT_SETTINGS = {
