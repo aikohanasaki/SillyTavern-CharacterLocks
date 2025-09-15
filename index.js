@@ -48,11 +48,6 @@ const SELECTORS = {
     tempCounterOpenai: '#temp_counter_openai'
 };
 
-const SUPPORTED_COMPLETION_SOURCES = [
-    'openai', 'claude', 'windowai', 'openrouter', 'ai21', 'scale', 'makersuite',
-    'mistralai', 'custom', 'cohere', 'perplexity', 'groq', '01ai', 'nanogpt',
-    'deepseek', 'blockentropy'
-];
 
 const MODEL_SELECTOR_MAP = {
     'openai': SELECTORS.modelOpenai,
@@ -675,7 +670,15 @@ class SettingsManager {
         console.log('STMTL: Context changed');
         this.chatContext.invalidate();
         this.loadCurrentSettings();
-        this.applySettings();
+
+        // Apply settings automatically if memory features are enabled
+        // This means user wants settings to be applied when switching contexts
+        const shouldApplySettings = this._shouldApplySettingsAutomatically();
+        if (shouldApplySettings && !isApplyingSettings) {
+            this.applySettings();
+        } else {
+            console.log('STMTL: Skipping automatic settings application - memory disabled or currently applying');
+        }
     }
 
     applySettings() {
@@ -692,13 +695,17 @@ class SettingsManager {
 
     _applySettingsToUI(settings) {
         const apiInfo = getCurrentApiInfo();
-        
+
         // If the saved settings have a specific engine and it doesn't match the current one, change the engine in the UI.
         if (settings.completionSource && settings.completionSource !== apiInfo.completionSource) {
             console.log(`STMTL: Applying completion source from settings: ${settings.completionSource}`);
-            
+
+            // Set flag to prevent feedback loop when changing completion source
+            isApplyingSettings = true;
             // Set the completion source dropdown to the saved value and trigger the 'change' event.
             $(SELECTORS.completionSource).val(settings.completionSource).trigger('change');
+            // Reset flag after a short delay to allow the change event to complete
+            setTimeout(() => { isApplyingSettings = false; }, 200);
             return true;
         }
 
@@ -872,6 +879,21 @@ class SettingsManager {
             console.log(`STMTL: ${message}`);
         }
     }
+
+    _shouldApplySettingsAutomatically() {
+        const extensionSettings = this.storage.getExtensionSettings();
+        const context = this.chatContext.getCurrent();
+
+        // Apply settings automatically if any memory option is enabled
+        // This means the user wants stored settings to be applied when switching contexts
+        if (context.isGroupChat) {
+            return extensionSettings.moduleSettings.enableGroupMemory ||
+                   extensionSettings.moduleSettings.enableChatMemory;
+        } else {
+            return extensionSettings.moduleSettings.enableCharacterMemory ||
+                   extensionSettings.moduleSettings.enableChatMemory;
+        }
+    }
 }
 
 // ===== GLOBAL STATE =====
@@ -880,6 +902,7 @@ let settingsManager = null;
 let storageAdapter = null;
 let isExtensionEnabled = false;
 let currentPopupInstance = null;
+let isApplyingSettings = false;
 
 // ===== UTILITY FUNCTIONS =====
 
@@ -928,12 +951,14 @@ function checkApiCompatibility() {
     let isCompatible = false;
 
     try {
-        const completionSource = $(SELECTORS.completionSource).val();
-        isCompatible = SUPPORTED_COMPLETION_SOURCES.includes(completionSource);
+        const mainApi = $(SELECTORS.mainApi).val();
+        // Check if main API is 'openai' (which covers all chat completion APIs)
+        // This is more future-proof than maintaining a hardcoded list of completion sources
+        isCompatible = mainApi === 'openai';
     } catch (e) {
         console.warn('STMTL: Error checking API compatibility:', e);
-        const completionSource = $(SELECTORS.completionSource).val();
-        isCompatible = SUPPORTED_COMPLETION_SOURCES.includes(completionSource);
+        const mainApi = $(SELECTORS.mainApi).val();
+        isCompatible = mainApi === 'openai';
     }
 
     if (isCompatible !== isExtensionEnabled) {
@@ -1487,25 +1512,36 @@ function setupEventListeners() {
     registerSillyTavernEvents();
 
     // API change detection
-    $(document).on('change', `${SELECTORS.mainApi}, ${SELECTORS.completionSource}`, function() {
-        console.log('STMTL: API change detected');
+    $(document).on('change', `${SELECTORS.mainApi}, ${SELECTORS.completionSource}`, function(e) {
+        console.log('STMTL: API change detected on:', e.target.id);
         checkApiCompatibility();
-        if (isExtensionEnabled) {
+
+        // Don't trigger context change if we're currently applying settings (prevents feedback loop)
+        if (isExtensionEnabled && !isApplyingSettings) {
+            console.log('STMTL: API/completion source changed - checking if context refresh needed');
             setTimeout(() => {
                 onCharacterChanged();
             }, 100);
+        } else if (isApplyingSettings) {
+            console.log('STMTL: Skipping context change - currently applying settings');
         }
     });
 
-    // Model/temp settings change detection
+    // Model/temp/completion source settings change detection
     const allModelSelectors = Object.values(MODEL_SELECTOR_MAP).concat([
-        SELECTORS.tempOpenai, 
-        SELECTORS.tempCounterOpenai
+        SELECTORS.tempOpenai,
+        SELECTORS.tempCounterOpenai,
+        SELECTORS.completionSource
     ]).join(', ');
 
     $(document).on('change input', allModelSelectors, function(e) {
-        console.log('STMTL: Model/temp setting changed:', e.target.id);
-        debouncedModelSettingsChanged();
+        console.log('STMTL: Model/temp/completion setting changed:', e.target.id);
+        // Don't auto-save if we're currently applying settings (prevents feedback loop)
+        if (!isApplyingSettings) {
+            debouncedModelSettingsChanged();
+        } else {
+            console.log('STMTL: Skipping auto-save - currently applying settings');
+        }
     });
 }
 
