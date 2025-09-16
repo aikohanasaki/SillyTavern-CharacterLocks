@@ -1045,20 +1045,20 @@ const popupTemplate = Handlebars.compile(`
 
     <div class="completion_prompt_manager_popup_entry_form_control">
         <h4>Current {{groupOrCharLabel}} Settings:</h4>
-        <div class="info_block" style="background: #2a2a2a; border-radius: 5px; margin-top: 10px;">
-            <pre style="margin: 0; white-space: pre-line;">{{characterInfo}}</pre>
+        <div class="completion_prompt_manager_popup_entry_form_control marginTop10">
+            <pre class="margin0">{{characterInfo}}</pre>
         </div>
 
         {{#if isGroupChat}}
         <h4>Current Individual Character Settings:</h4>
-        <div class="info_block" style="background: #2a2a2a; border-radius: 5px; margin-top: 10px;">
-            <pre style="margin: 0; white-space: pre-line;">{{individualCharacterInfo}}</pre>
+        <div class="completion_prompt_manager_popup_entry_form_control marginTop10">
+            <pre class="margin0">{{individualCharacterInfo}}</pre>
         </div>
         {{/if}}
 
         <h4>Current Chat Settings:</h4>
-        <div class="info_block" style="background: #2a2a2a; border-radius: 5px; margin-top: 10px;">
-            <pre style="margin: 0; white-space: pre-line;">{{chatInfo}}</pre>
+        <div class="completion_prompt_manager_popup_entry_form_control marginTop10">
+            <pre class="margin0">{{chatInfo}}</pre>
         </div>
     </div>
 </div>
