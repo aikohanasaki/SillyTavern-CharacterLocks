@@ -623,7 +623,8 @@ class SettingsManager {
             character: null,
             chat: null,
             group: null,
-            individual: null
+            individual: null,
+            groupMembers: []
         };
     }
 
@@ -654,6 +655,26 @@ class SettingsManager {
             this.currentSettings.chat = this.storage.getGroupChatSettings(context.groupId);
         }
 
+        // Load settings for ALL group members
+        this.currentSettings.groupMembers = [];
+        if (prefs.enableCharacterMemory && context.groupId) {
+            const group = groups?.find(x => x.id === context.groupId);
+            if (group?.members && Array.isArray(group.members)) {
+                for (const memberAvatar of group.members) {
+                    const character = characters?.find(x => x.avatar === memberAvatar);
+                    if (character?.name) {
+                        const memberSettings = this.storage.getCharacterSettings(character.name);
+                        this.currentSettings.groupMembers.push({
+                            name: character.name,
+                            avatar: memberAvatar,
+                            settings: memberSettings
+                        });
+                    }
+                }
+            }
+        }
+
+        // Keep the individual setting for backward compatibility
         const shouldLoadIndividual = prefs.enableCharacterMemory || prefs.preferIndividualCharacterInGroup;
         if (shouldLoadIndividual && context.activeCharacterInGroup) {
             this.currentSettings.individual = this.storage.getCharacterSettings(context.activeCharacterInGroup);
@@ -1044,22 +1065,41 @@ const popupTemplate = Handlebars.compile(`
     </div>
 
     <div class="completion_prompt_manager_popup_entry_form_control">
-        <h4>Current {{groupOrCharLabel}} Settings:</h4>
-        <div class="completion_prompt_manager_popup_entry_form_control marginTop10">
-            <pre class="margin0">{{characterInfo}}</pre>
-        </div>
-
         {{#if isGroupChat}}
-        <h4>Current Individual Character Settings:</h4>
+        <h4>Group Settings:</h4>
         <div class="completion_prompt_manager_popup_entry_form_control marginTop10">
-            <pre class="margin0">{{individualCharacterInfo}}</pre>
+            <pre class="margin0">{{groupInfo}}</pre>
         </div>
-        {{/if}}
 
         <h4>Current Chat Settings:</h4>
         <div class="completion_prompt_manager_popup_entry_form_control marginTop10">
             <pre class="margin0">{{chatInfo}}</pre>
         </div>
+
+        <h4>Group Members:</h4>
+        <div class="flex-container marginTop10">
+            {{#each groupMembers}}
+            <div class="flex1">
+                <h5>{{name}}</h5>
+                <pre class="margin0">{{settings}}</pre>
+            </div>
+            {{/each}}
+        </div>
+
+        <div class="marginTop10">
+            <small>💡 To set individual character settings, visit their character card</small>
+        </div>
+        {{else}}
+        <h4>Current Character Settings:</h4>
+        <div class="completion_prompt_manager_popup_entry_form_control marginTop10">
+            <pre class="margin0">{{characterInfo}}</pre>
+        </div>
+
+        <h4>Current Chat Settings:</h4>
+        <div class="completion_prompt_manager_popup_entry_form_control marginTop10">
+            <pre class="margin0">{{chatInfo}}</pre>
+        </div>
+        {{/if}}
     </div>
 </div>
 `);
@@ -1161,9 +1201,14 @@ function getPopupContent() {
         statusText,
         isGroupChat,
         groupOrCharLabel: isGroupChat ? 'Group' : 'Character',
-        characterInfo: formatSettingsInfo(isGroupChat ? settingsManager.currentSettings.group : settingsManager.currentSettings.character),
+        characterInfo: formatSettingsInfo(settingsManager.currentSettings.character),
+        groupInfo: formatSettingsInfo(settingsManager.currentSettings.group),
         individualCharacterInfo: formatSettingsInfo(settingsManager.currentSettings.individual),
         chatInfo: formatSettingsInfo(settingsManager.currentSettings.chat),
+        groupMembers: isGroupChat ? settingsManager.currentSettings.groupMembers.map(member => ({
+            name: member.name,
+            settings: formatSettingsInfo(member.settings)
+        })) : [],
         checkboxes
     };
 
@@ -1208,36 +1253,62 @@ async function showPopup() {
     const context = settingsManager.chatContext.getCurrent();
     const isGroupChat = context.isGroupChat;
 
-    const customButtons = [
-        {
-            text: isGroupChat ? '✔️ Set Group' : '✔️ Set Character',
-            classes: ['menu_button'],
-            action: async () => {
-                const targets = { character: true, chat: false };
-                settingsManager.saveCurrentUISettings(targets, false);
-                refreshPopupContent();
+    const customButtons = [];
+
+    // For single character chats, show character and both buttons
+    if (!isGroupChat) {
+        customButtons.push(
+            {
+                text: '✔️ Set Character',
+                classes: ['menu_button'],
+                action: async () => {
+                    const targets = { character: true, chat: false };
+                    settingsManager.saveCurrentUISettings(targets, false);
+                    refreshPopupContent();
+                }
+            },
+            {
+                text: '✔️ Set Both',
+                classes: ['menu_button'],
+                action: async () => {
+                    const targets = { character: true, chat: true };
+                    settingsManager.saveCurrentUISettings(targets, false);
+                    refreshPopupContent();
+                }
             }
-        },
+        );
+    } else {
+        // For group chats, only show group and all buttons (no individual character button)
+        customButtons.push(
+            {
+                text: '✔️ Set Group',
+                classes: ['menu_button'],
+                action: async () => {
+                    const targets = { character: true, chat: false };
+                    settingsManager.saveCurrentUISettings(targets, false);
+                    refreshPopupContent();
+                }
+            },
+            {
+                text: '✔️ Set All',
+                classes: ['menu_button'],
+                action: async () => {
+                    const targets = { character: true, chat: true };
+                    settingsManager.saveCurrentUISettings(targets, false);
+                    refreshPopupContent();
+                }
+            }
+        );
+    }
+
+    // Chat button is common to both
+    customButtons.push(
         {
             text: '✔️ Set Chat',
             classes: ['menu_button'],
             action: async () => {
                 const targets = { character: false, chat: true };
                 settingsManager.saveCurrentUISettings(targets, false);
-                refreshPopupContent();
-            }
-        },
-        {
-            text: isGroupChat ? '✔️ Set All' : '✔️ Set Both',
-            classes: ['menu_button'],
-            action: async () => {
-                const targets = { character: true, chat: true };
-                settingsManager.saveCurrentUISettings(targets, false);
-                
-                if (isGroupChat && context.activeCharacterInGroup) {
-                    settingsManager.saveCurrentSettingsForCharacter(context.activeCharacterInGroup, false);
-                }
-                
                 refreshPopupContent();
             }
         },
@@ -1293,52 +1364,13 @@ async function showPopup() {
                 refreshPopupContent();
             }
         }
-    ];
+    );
 
-    if (isGroupChat) {
-        // Add "Set Active Char" button
-        const setActiveCharButton = {
-            text: '✔️ Set Active Char',
-            classes: ['menu_button'],
-            action: async () => {
-                if (context.activeCharacterInGroup) {
-                    settingsManager.saveCurrentSettingsForCharacter(context.activeCharacterInGroup, false);
-                    settingsManager.loadCurrentSettings();
-                } else {
-                    if (typeof toastr !== 'undefined') {
-                        toastr.warning('No active character detected in the group', MODULE_NAME);
-                    }
-                }
-                refreshPopupContent();
-            }
-        };
-        customButtons.splice(1, 0, setActiveCharButton);
-
-        // Add "Clear Active Char" button
-        const clearActiveCharButton = {
-            text: '❌ Clear Active Char',
-            classes: ['menu_button'],
-            action: async () => {
-                if (context.activeCharacterInGroup) {
-                    if (storageAdapter.deleteCharacterSettings(context.activeCharacterInGroup)) {
-                        settingsManager.currentSettings.individual = null;
-                        if (typeof toastr !== 'undefined') {
-                            toastr.info(`Cleared individual settings for ${context.activeCharacterInGroup}`, MODULE_NAME);
-                        }
-                    }
-                } else {
-                    if (typeof toastr !== 'undefined') {
-                        toastr.warning('No active character detected', MODULE_NAME);
-                    }
-                }
-                refreshPopupContent();
-            }
-        };
-        customButtons.splice(5, 0, clearActiveCharButton);
-    }
 
     const popupOptions = {
         wide: true,
+        large: true,
+        allowVerticalScrolling: true,
         customButtons: customButtons,
         cancelButton: 'Close',
         okButton: false,

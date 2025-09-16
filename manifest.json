@@ -5,8 +5,8 @@
     "optional": [],
     "js": "index.js",
     "author": "aikohanasaki",
-    "version": "3.0.5",
+    "version": "3.0.6",
     "homePage": "https://github.com/aikohanasaki/SillyTavern-ModelTempLocks",
     "auto_update": true,
-    "description": "Remembers model and temperature settings for each character and chat, with automatic save and restore. Customize chat/character prioritization, autosave, notifications. Version 2.0 adds support for group chats."
+    "description": "Remembers model and temperature settings for each character and chat, with automatic save and restore. Customize chat/character prioritization, autosave, notifications. Version 3.0.6 features enhanced group chat UI with responsive member layout and improved usability."
 }

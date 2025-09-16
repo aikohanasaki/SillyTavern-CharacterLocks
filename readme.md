@@ -1,17 +1,11 @@
 # 🌡️ Model Temp Locks (STMTL Extension for SillyTavern)
 
-![Status: Feature Complete](https://img.shields.io/badge/Status-Feature%20Complete-brightgreen)
-![Maintenance: Active](https://img.shields.io/badge/Maintenance-Active-blue)
-
 A SillyTavern extension that automatically remembers and applies your preferred model and temperature settings for different characters, chats, and group conversations. No more constantly tweaking settings - just set them once and let the extension handle the rest.
-
-> **📋 Project Status**: This extension is considered feature-complete and stable as of version 3.0.1. While major new features are not planned, bug reports and compatibility updates are welcome!
 
 ## ⚠️ Requirements
 
 - **Chat Completion API only**: Works with OpenAI API-compatible chat completion endpoints
-- **Supported providers**: OpenAI, Claude, WindowAI, OpenRouter, AI21, Scale, Google (Makersuite), Mistral AI, Custom, Cohere, Perplexity, Groq, 01.AI, NanoGPT, DeepSeek, BlockEntropy
-- **What it saves**: Model selection and temperature only (if you need more comprehensive presets, use SillyTavern's built-in character preset matching)
+- **What it saves**: Model selection and temperature only (preset switching WIP)
 
 ## 🚀 Features
 
@@ -59,6 +53,8 @@ The settings panel adapts based on whether you're in a single chat or group chat
 - ✅ **Auto-save group settings** - Automatically save group-wide preferences
 - ✅ **Auto-save chat settings** - Automatically save chat-specific preferences
 
+The group chat interface displays all group members with their current settings in a responsive layout. To manage individual character settings, visit their character cards directly.
+
 **Notification Options:**
 - ✅ **Show auto-save notifications** - Get notified when settings are auto-saved
 - ✅ **Show other notifications** - Get notified about API status, settings applied, etc.
@@ -69,7 +65,8 @@ The settings panel adapts based on whether you're in a single chat or group chat
 - **Set Character** / **Set Group** - Save current model/temp for this character or group
 - **Set Chat** - Save current model/temp for this specific conversation
 - **Set Both** / **Set All** - Save to both character/group and chat
-- **Set Active Char** (group chats only) - Save settings for the currently active character
+
+*For individual character settings in group chats, visit each character's card directly.*
 
 **Auto-Saving (Recommended for ongoing use):**
 - Enable auto-save options and your settings will be remembered automatically as you chat
@@ -80,15 +77,16 @@ The settings panel adapts based on whether you're in a single chat or group chat
 **Viewing Current Settings:**
 The panel shows you what's currently saved for:
 - Character/Group settings
-- Individual character settings (in group chats)
+- All group member settings (displayed in a responsive grid in group chats)
 - Chat settings
 - When each was last saved
 
 **Clearing Settings:**
 - **Clear Character** / **Clear Group** - Remove saved character or group settings
 - **Clear Chat** - Remove saved chat settings
-- **Clear Active Char** (group chats only) - Remove settings for the active character
 - **Clear All** - Remove all saved settings for the current context
+
+*To clear individual character settings in group chats, visit each character's card directly.*
 
 ## 🎯 Common Use Cases
 
@@ -122,6 +120,10 @@ The panel shows you what's currently saved for:
 - All settings include model, temperature, completion source, and timestamp
 
 **Group Chat Detection**: Automatically detects group chats and shows appropriate options.
+
+## 📋 Version History
+
+For detailed information about changes, updates, and new features in each version, see the [Changelog](changelog.md).
 
 ---
 

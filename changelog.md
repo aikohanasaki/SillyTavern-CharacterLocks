@@ -2,38 +2,48 @@
 
 All notable changes to the SillyTavern Model Temperature Locks extension will be documented in this file.
 
-← [Back to README](readme.md)
+← [Back to README](README.md)
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.0.6] - 2025-01-15
+
 ### Added
+- **Enhanced Group Chat UI**: Complete redesign of group chat interface to display ALL group members simultaneously
+- **Responsive Group Member Layout**: Flexbox-based layout that displays group members side-by-side with automatic wrapping on smaller screens
+- **Improved Group Chat Flow**: Reorganized settings display order (Group Settings → Chat Settings → Group Members)
+- **User Guidance**: Added helpful tooltip directing users to character cards for individual character settings management
+- **Large Scrollable Popup**: Enhanced popup size and scrolling capabilities for better group chat experience
+
+### Changed
+- **Group Chat Button Simplification**: Removed confusing "Set Active Char" and "Clear Active Char" buttons from group chat interface
+- **Settings Display Reorganization**: Moved group members display to bottom after chat settings for better information hierarchy
+- **Tooltip Positioning**: Moved instructional tooltip to bottom of interface, just before action buttons for better visibility
+- **Popup Sizing**: Added large popup mode with vertical scrolling for improved content accessibility
+
+### Fixed
+- **Group Chat Settings Display**: Fixed issue where character settings were not displaying properly in group chats
+- **Content Overflow**: Resolved popup content being cut off by implementing proper scrolling and sizing
+
+### Technical
+- Implemented `flex-container` and `flex1` CSS classes from SillyTavern's native styling system
+- Added `large: true` and `allowVerticalScrolling: true` popup options for improved UX
+- Enhanced settings loading logic to load all group members instead of single active character
+- Updated Handlebars template to support multiple group member display
+- Improved responsive design using SillyTavern's native CSS utilities
+
+### Previous Features (from earlier versions)
 - Preset switching functionality for automatic preset management
 - Support for multiple AI model providers and completion sources
 - Group chat individual temperature locks per character
 - Enhanced model selector support for various providers
-
-### Fixed
-- Chat completion new sources and API integration issues
+- Chat completion new sources and API integration improvements
 - Model selector updates and compatibility improvements
-- Completion source filtering behavior
+- Completion source filtering behavior fixes
 - Menu item display and interaction fixes
-
-### Changed
-- Updated model selectors for better provider compatibility
-- Improved model selection UI and controls
-- Refactored completion source handling
-- Enhanced group chat support with individual character settings
-
-### Technical
-- Added support for multiple AI providers (OpenAI, Claude, OpenRouter, AI21, Google, MistralAI, etc.)
-- Implemented preset mapping system for automatic preset switching
-- Enhanced group chat functionality with individual character memory
-- Improved settings management and storage system
-- Added migration system for legacy settings
-- Implemented auto-save functionality for model and temperature settings
 
 ## [Previous Versions]
 
