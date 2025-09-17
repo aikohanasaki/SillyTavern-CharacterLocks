@@ -1704,7 +1704,6 @@ async function showPopup() {
     try {
         currentPopupInstance = new Popup(contentWithHeader, POPUP_TYPE.TEXT, '', popupOptions);
         await currentPopupInstance.show();
-        currentPopupInstance = null;
     } catch (error) {
         console.error('STMTL: Error showing popup:', error);
         currentPopupInstance = null;
