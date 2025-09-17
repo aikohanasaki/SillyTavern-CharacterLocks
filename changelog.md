@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2025-01-16
+
+### Added
+- **Enhanced Event Management System**: Comprehensive event handler registration and cleanup system with proper resource management
+- **Queue Bounds Protection**: Added maximum queue sizes for character and context change queues to prevent memory issues
+- **Timeout Protection**: 5-second timeout protection for context building operations to prevent deadlocks
+- **Memory Leak Prevention**: Complete extension cleanup system with proper event listener disposal and resource management
+- **Robust Error Handling**: Enhanced error handling throughout the extension with graceful degradation and recovery
+- **Event Validation**: Pre-registration validation of events to ensure compatibility with different SillyTavern versions
+
+### Changed
+- **Race Condition Fixes**: Replaced busy-wait polling with promise-based coordination for context building
+- **Improved Queue Processing**: Enhanced queue processing with proper debouncing (100ms) instead of recursive setTimeout
+- **Better Async Handling**: All async operations now properly handled with comprehensive error boundaries
+- **Enhanced DOM Safety**: Added validation and null checks for all DOM element operations with safe fallbacks
+
+### Fixed
+- **SillyTavern Compatibility**: Fixed non-existent `CHARACTER_SELECTED` event usage, now properly uses `CHAT_CHANGED` event
+- **Invalid Completion Source**: Removed references to non-existent '01ai' completion source from selectors
+- **Group Edit Integration**: Fixed `editGroup` function calls to use proper imports instead of window object access
+- **Event Registration Failures**: Added fallback mechanisms for event registration with proper error handling
+- **Context Building Concurrency**: Eliminated CPU-intensive busy-waiting with efficient promise-based approach
+
+### Technical Improvements
+- **Memory Management**: Bounded queues (max 10 character queue, 20 context queue) with FIFO overflow protection
+- **Performance Optimization**: Eliminated busy-wait loops that consumed CPU during context building
+- **Error Recovery**: Added comprehensive error boundaries with detailed logging and recovery mechanisms
+- **Event System Robustness**: Enhanced event registration with validation, cleanup, and fallback handling
+- **API Integration**: Improved validation for getCurrentApiInfo() and DOM element access with type checking
+- **Function Signatures**: Enhanced async function handling with proper await patterns and error propagation
+
+### Security & Stability
+- **Input Validation**: Enhanced validation for all user inputs and API responses with sanitization
+- **Safe Defaults**: Added safe default values for all settings operations to prevent undefined behavior
+- **Resource Cleanup**: Proper cleanup of timers, promises, and event listeners to prevent memory leaks
+- **Graceful Degradation**: Extension continues working even when some SillyTavern features are unavailable
+
 ## [3.0.6] - 2025-01-15
 
 ### Added

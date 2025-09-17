@@ -2,6 +2,8 @@
 
 A SillyTavern extension that automatically remembers and applies your preferred model and temperature settings for different characters, chats, and group conversations. No more constantly tweaking settings - just set them once and let the extension handle the rest.
 
+✨ **Version 3.1.0** brings enhanced reliability with memory leak prevention, performance optimizations, robust error handling, and improved SillyTavern compatibility.
+
 ## ⚠️ Requirements
 
 - **Chat Completion API only**: Works with OpenAI API-compatible chat completion endpoints
@@ -114,12 +116,20 @@ The panel shows you what's currently saved for:
 
 **API Compatibility Check**: The extension automatically detects if you're using a compatible API and shows status in the settings panel.
 
-**Settings Storage**: 
+**Settings Storage**:
 - Character and group settings are stored in extension settings
 - Chat settings are stored in chat metadata
 - All settings include model, temperature, completion source, and timestamp
 
 **Group Chat Detection**: Automatically detects group chats and shows appropriate options.
+
+**Enhanced Reliability (v3.1.0)**:
+- **Memory Management**: Bounded queues prevent memory leaks and ensure stable operation
+- **Error Recovery**: Comprehensive error handling with graceful degradation when features are unavailable
+- **Performance Optimization**: Eliminated busy-waiting and CPU-intensive operations for smoother performance
+- **Event System**: Robust event handling with proper cleanup and SillyTavern compatibility validation
+- **Timeout Protection**: 5-second timeout protection prevents deadlocks during context operations
+- **Resource Cleanup**: Automatic cleanup of timers, promises, and event listeners on extension restart
 
 ## 📋 Version History
 
