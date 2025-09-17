@@ -108,18 +108,36 @@ class ChatContext {
     constructor() {
         this.cache = new Map();
         this.cacheTime = 0;
+        this.buildingContext = false;
     }
 
-    getCurrent() {
+    async getCurrent() {
         const now = Date.now();
         if (now - this.cacheTime < CACHE_TTL && this.cache.has('current')) {
             return this.cache.get('current');
         }
 
-        const context = this._buildContext();
-        this.cache.set('current', context);
-        this.cacheTime = now;
-        return context;
+        // Prevent concurrent context building
+        if (this.buildingContext) {
+            // Wait for the current build to complete
+            while (this.buildingContext) {
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+            // Return the newly built context if available
+            if (this.cache.has('current')) {
+                return this.cache.get('current');
+            }
+        }
+
+        this.buildingContext = true;
+        try {
+            const context = this._buildContext();
+            this.cache.set('current', context);
+            this.cacheTime = now;
+            return context;
+        } finally {
+            this.buildingContext = false;
+        }
     }
 
     invalidate() {
@@ -174,14 +192,21 @@ class ChatContext {
     }
 
     _getActiveCharacterInGroup() {
-        if (this._forcedActiveCharacter) {
-            const name = this._forcedActiveCharacter;
-            this._forcedActiveCharacter = null;
-            console.log('STMTL: _getActiveCharacterInGroup: Using FORCED active character:', name);
+        // Check if there's a queued character change
+        if (characterQueue.length > 0) {
+            const name = characterQueue.shift(); // Get the first in queue
+            console.log('STMTL: _getActiveCharacterInGroup: Using queued active character:', name);
             return name;
         }
         // No character message found
         return null;
+    }
+
+    _queueActiveCharacter(characterName) {
+        if (characterName && typeof characterName === 'string') {
+            characterQueue.push(characterName);
+            console.log('STMTL: Queued active character:', characterName);
+        }
     }
 
     _getCharacterNameForSettings() {
@@ -484,6 +509,8 @@ class StorageAdapter {
 
             if (typeof window.editGroup === 'function') {
                 window.editGroup(groupId, false, false);
+            } else {
+                console.warn('STMTL: window.editGroup function not available');
             }
             
             return true;
@@ -507,6 +534,8 @@ class StorageAdapter {
                 
                 if (typeof window.editGroup === 'function') {
                     window.editGroup(groupId, false, false);
+                } else {
+                    console.warn('STMTL: window.editGroup function not available');
                 }
                 
                 return true;
@@ -628,8 +657,8 @@ class SettingsManager {
         };
     }
 
-    loadCurrentSettings() {
-        const context = this.chatContext.getCurrent();
+    async loadCurrentSettings() {
+        const context = await this.chatContext.getCurrent();
         console.log('STMTL: Loading settings for context:', context);
 
         this.currentSettings = this._getEmptySettings();
@@ -693,68 +722,101 @@ class SettingsManager {
         }
     }
 
-    getSettingsToApply() {
-        const context = this.chatContext.getCurrent();
+    async getSettingsToApply() {
+        const context = await this.chatContext.getCurrent();
         this.priorityResolver = new SettingsPriorityResolver(this.storage.getExtensionSettings());
         return this.priorityResolver.resolve(context, this.currentSettings);
     }
 
     onContextChanged() {
-        console.log('STMTL: Context changed');
-        this.chatContext.invalidate();
-        this.loadCurrentSettings();
+        // Add to queue and process asynchronously to prevent race conditions
+        contextChangeQueue.push(Date.now());
+        this._processContextChangeQueue();
+    }
 
-        // Reset the applying flag in case it got stuck
-        isApplyingSettings = false;
+    async _processContextChangeQueue() {
+        if (processingContext) {
+            console.log('STMTL: Context change already in progress, queued');
+            return;
+        }
 
-        // Apply settings automatically when switching contexts
-        const shouldApplySettings = this._shouldApplySettingsAutomatically();
-        console.log('STMTL: shouldApplySettings:', shouldApplySettings, 'isApplyingSettings:', isApplyingSettings);
-        if (shouldApplySettings && !isApplyingSettings) {
-            console.log('STMTL: Applying settings automatically on context change');
-            this.applySettings();
-        } else {
-            console.log('STMTL: Skipping automatic settings application - memory disabled or currently applying');
+        if (contextChangeQueue.length === 0) {
+            return;
+        }
+
+        processingContext = true;
+        try {
+            // Process the latest context change (discard duplicates)
+            contextChangeQueue.length = 0;
+
+            console.log('STMTL: Processing context change');
+            this.chatContext.invalidate();
+            await this.loadCurrentSettings();
+
+            // Apply settings automatically when switching contexts with proper flag management
+            const shouldApplySettings = await this._shouldApplySettingsAutomatically();
+            console.log('STMTL: shouldApplySettings:', shouldApplySettings, 'isApplyingSettings:', isApplyingSettings);
+            if (shouldApplySettings && !isApplyingSettings) {
+                console.log('STMTL: Applying settings automatically on context change');
+                await this.applySettings();
+            } else {
+                console.log('STMTL: Skipping automatic settings application - memory disabled or currently applying');
+            }
+        } finally {
+            processingContext = false;
+
+            // Process any additional changes that came in while we were processing
+            if (contextChangeQueue.length > 0) {
+                setTimeout(() => this._processContextChangeQueue(), 50);
+            }
         }
     }
 
-    applySettings() {
-        const resolved = this.getSettingsToApply();
-
-        if (!resolved.settings) {
-            console.log('STMTL: No settings to apply');
+    async applySettings() {
+        if (isApplyingSettings) {
+            console.log('STMTL: Already applying settings, skipping');
             return false;
         }
 
-        console.log(`STMTL: Applying ${resolved.source} settings:`, resolved.settings);
-        const result = this._applySettingsToUI(resolved.settings);
-        console.log('STMTL: Settings application result:', result);
-        return result;
+        try {
+            isApplyingSettings = true;
+            const resolved = await this.getSettingsToApply();
+
+            if (!resolved.settings) {
+                console.log('STMTL: No settings to apply');
+                return false;
+            }
+
+            console.log(`STMTL: Applying ${resolved.source} settings:`, resolved.settings);
+            const result = await this._applySettingsToUI(resolved.settings);
+            console.log('STMTL: Settings application result:', result);
+            return result;
+        } finally {
+            isApplyingSettings = false;
+        }
     }
 
-    _applySettingsToUI(settings) {
+    async _applySettingsToUI(settings) {
         const apiInfo = getCurrentApiInfo();
         console.log('STMTL: _applySettingsToUI called with:', settings);
         console.log('STMTL: Current API info:', apiInfo);
 
         // If the saved settings have a specific engine and it doesn't match the current one, change the engine in the UI.
         if (settings.completionSource && settings.completionSource !== apiInfo.completionSource) {
+            // Return a promise that resolves when the completion source change is complete
+            return new Promise((resolve) => {
+                // Set up one-time listener for completion source change
+                const handleSourceChanged = () => {
+                    eventSource.removeListener(event_types.CHATCOMPLETION_SOURCE_CHANGED, handleSourceChanged);
+                    const result = this._applyModelAndTemperature(settings);
+                    resolve(result);
+                };
 
-            // Set flag to prevent feedback loop when changing completion source
-            isApplyingSettings = true;
+                eventSource.on(event_types.CHATCOMPLETION_SOURCE_CHANGED, handleSourceChanged);
 
-            // Set up one-time listener for completion source change
-            const handleSourceChanged = () => {
-                eventSource.removeListener(event_types.CHATCOMPLETION_SOURCE_CHANGED, handleSourceChanged);
-                this._applyModelAndTemperature(settings);
-                isApplyingSettings = false;
-            };
-
-            eventSource.on(event_types.CHATCOMPLETION_SOURCE_CHANGED, handleSourceChanged);
-
-            // Set the completion source dropdown to the saved value and trigger the 'change' event.
-            $(SELECTORS.completionSource).val(settings.completionSource).trigger('change');
-            return true;
+                // Set the completion source dropdown to the saved value and trigger the 'change' event.
+                $(SELECTORS.completionSource).val(settings.completionSource).trigger('change');
+            });
         }
 
         // If we've reached this point, the completion source is correct. Now apply the model and temperature.
@@ -768,34 +830,39 @@ class SettingsManager {
         // Apply model setting
         if (settings.model) {
             if (apiInfo.completionSource === 'custom') {
-                if ($(SELECTORS.customModelId).length) {
-                    $(SELECTORS.customModelId).val(settings.model).trigger('input').trigger('change');
+                const customModelId = $(SELECTORS.customModelId);
+                const modelCustomSelect = $(SELECTORS.modelCustomSelect);
+                if (customModelId.length) {
+                    customModelId.val(settings.model).trigger('input').trigger('change');
                 }
-                if ($(SELECTORS.modelCustomSelect).length) {
-                    $(SELECTORS.modelCustomSelect).val(settings.model).trigger('change');
+                if (modelCustomSelect.length) {
+                    modelCustomSelect.val(settings.model).trigger('change');
                 }
             } else {
-                if ($(selectors.model).length) {
-                    $(selectors.model).val(settings.model).trigger('change');
+                const modelSelector = $(selectors.model);
+                if (modelSelector.length) {
+                    modelSelector.val(settings.model).trigger('change');
                 }
             }
         }
 
         // Apply temperature setting
         if (lodash.isNumber(settings.temperature)) {
-            if ($(selectors.temp).length) {
-                $(selectors.temp).val(settings.temperature).trigger('input').trigger('change');
+            const tempSelector = $(selectors.temp);
+            const tempCounterSelector = $(selectors.tempCounter);
+            if (tempSelector.length) {
+                tempSelector.val(settings.temperature).trigger('input').trigger('change');
             }
-            if ($(selectors.tempCounter).length) {
-                $(selectors.tempCounter).val(settings.temperature).trigger('change');
+            if (tempCounterSelector.length) {
+                tempCounterSelector.val(settings.temperature).trigger('change');
             }
         }
 
         return true;
     }
 
-    saveCurrentUISettings(targets = {}, isAutoSave = false) {
-        const context = this.chatContext.getCurrent();
+    async saveCurrentUISettings(targets = {}, isAutoSave = false) {
+        const context = await this.chatContext.getCurrent();
         const uiSettings = this._getCurrentUISettings();
         
         let savedCount = 0;
@@ -837,9 +904,9 @@ class SettingsManager {
         return savedCount > 0;        
     }
 
-    saveCurrentSettingsForCharacter(characterName, isAutoSave = false) {
+    async saveCurrentSettingsForCharacter(characterName, isAutoSave = false) {
         const uiSettings = this._getCurrentUISettings();
-        
+
         if (this.storage.setCharacterSettings(characterName, uiSettings)) {
             this._showSaveNotification(1, [`character: ${characterName}`], isAutoSave);
             return true;
@@ -847,8 +914,8 @@ class SettingsManager {
         return false;
     }
 
-    clearAllSettings() {
-        const context = this.chatContext.getCurrent();
+    async clearAllSettings() {
+        const context = await this.chatContext.getCurrent();
         let clearedCount = 0;
         const clearedTypes = [];
 
@@ -895,12 +962,22 @@ class SettingsManager {
         
         let currentModel = '';
         if (apiInfo.completionSource === 'custom') {
-            currentModel = $(SELECTORS.customModelId).val() || $(SELECTORS.modelCustomSelect).val() || '';
+            const customModelId = $(SELECTORS.customModelId);
+            const modelCustomSelect = $(SELECTORS.modelCustomSelect);
+            currentModel = (customModelId.length ? customModelId.val() : '') ||
+                          (modelCustomSelect.length ? modelCustomSelect.val() : '') || '';
         } else {
-            currentModel = $(selectors.model).val() || '';
+            const modelSelector = $(selectors.model);
+            currentModel = modelSelector.length ? modelSelector.val() || '' : '';
         }
 
-        const currentTemp = parseFloat($(selectors.temp).val() || $(selectors.tempCounter).val() || 0.7);
+        const tempSelector = $(selectors.temp);
+        const tempCounterSelector = $(selectors.tempCounter);
+        const currentTemp = parseFloat(
+            (tempSelector.length ? tempSelector.val() : '') ||
+            (tempCounterSelector.length ? tempCounterSelector.val() : '') ||
+            0.7
+        );
 
         return {
             model: currentModel,
@@ -932,9 +1009,9 @@ class SettingsManager {
         }
     }
 
-    _shouldApplySettingsAutomatically() {
+    async _shouldApplySettingsAutomatically() {
         const extensionSettings = this.storage.getExtensionSettings();
-        const context = this.chatContext.getCurrent();
+        const context = await this.chatContext.getCurrent();
 
         // Apply settings automatically if any memory option is enabled
         // This means the user wants stored settings to be applied when switching contexts
@@ -955,6 +1032,11 @@ let storageAdapter = null;
 let isExtensionEnabled = false;
 let currentPopupInstance = null;
 let isApplyingSettings = false;
+let eventListenersRegistered = false;
+let contextChangeQueue = [];
+let processingContext = false;
+let characterQueue = [];
+let processingCharacter = false;
 
 // ===== UTILITY FUNCTIONS =====
 
@@ -1107,9 +1189,9 @@ const popupTemplate = Handlebars.compile(`
 // ===== SIMPLIFIED EVENT HANDLERS =====
 
 // Debounced model settings change handler
-const debouncedModelSettingsChanged = lodash.debounce(function() {
+const debouncedModelSettingsChanged = lodash.debounce(async function() {
     console.log('STMTL: Debounced save triggered');
-    onModelSettingsChanged();
+    await onModelSettingsChanged();
 }, SAVE_DEBOUNCE_TIME);
 
 function onCharacterChanged() {
@@ -1122,49 +1204,49 @@ function onChatChanged() {
     settingsManager.onContextChanged();
 }
 
-function onModelSettingsChanged() {
+async function onModelSettingsChanged() {
     if (!isExtensionEnabled || !settingsManager) {
         console.log('STMTL: Skipping save - extension not enabled');
         return;
     }
 
     const extensionSettings = storageAdapter.getExtensionSettings();
-    const context = settingsManager.chatContext.getCurrent();
-    
+    const context = await settingsManager.chatContext.getCurrent();
+
     let shouldAutoSave = false;
 
     if (context.isGroupChat) {
-        shouldAutoSave = extensionSettings.moduleSettings.autoSaveGroup || 
+        shouldAutoSave = extensionSettings.moduleSettings.autoSaveGroup ||
                         extensionSettings.moduleSettings.autoSaveChat;
-        
+
         if (shouldAutoSave) {
             const targets = {
                 character: extensionSettings.moduleSettings.autoSaveGroup,
                 chat: extensionSettings.moduleSettings.autoSaveChat
             };
-            settingsManager.saveCurrentUISettings(targets, true);
+            await settingsManager.saveCurrentUISettings(targets, true);
         }
     } else {
-        shouldAutoSave = extensionSettings.moduleSettings.autoSaveCharacter || 
+        shouldAutoSave = extensionSettings.moduleSettings.autoSaveCharacter ||
                         extensionSettings.moduleSettings.autoSaveChat;
-        
+
         if (shouldAutoSave) {
             const targets = {
                 character: extensionSettings.moduleSettings.autoSaveCharacter,
                 chat: extensionSettings.moduleSettings.autoSaveChat
             };
-            settingsManager.saveCurrentUISettings(targets, true);
+            await settingsManager.saveCurrentUISettings(targets, true);
         }
     }
 }
 
 // ===== POPUP MANAGEMENT =====
 
-function getPopupContent() {
+async function getPopupContent() {
     const extensionSettings = storageAdapter.getExtensionSettings();
     const apiInfo = getCurrentApiInfo();
-    const context = settingsManager.chatContext.getCurrent();
-    
+    const context = await settingsManager.chatContext.getCurrent();
+
     const isGroupChat = context.isGroupChat;
     
     const statusText = isExtensionEnabled
@@ -1215,14 +1297,14 @@ function getPopupContent() {
     return DOMPurify.sanitize(popupTemplate(templateData));
 }
 
-function refreshPopupContent() {
+async function refreshPopupContent() {
     if (!currentPopupInstance || !currentPopupInstance.dlg.hasAttribute('open')) {
         console.warn('STMTL: Cannot refresh popup - no popup currently open');
         return;
     }
 
     try {
-        const content = getPopupContent();
+        const content = await getPopupContent();
         const header = '🌡️ Model & Temperature Settings';
         const newContent = `<h3>${header}</h3>${content}`;
 
@@ -1247,10 +1329,17 @@ function refreshPopupContent() {
 }
 
 async function showPopup() {
-    const content = getPopupContent();
+    // Prevent multiple popups from opening simultaneously
+    if (currentPopupInstance && currentPopupInstance.dlg && currentPopupInstance.dlg.hasAttribute('open')) {
+        console.log('STMTL: Popup already open, bringing to front');
+        currentPopupInstance.dlg.focus();
+        return;
+    }
+
+    const content = await getPopupContent();
     const header = '🌡️ Model & Temperature Settings';
     const contentWithHeader = `<h3>${header}</h3>${content}`;
-    const context = settingsManager.chatContext.getCurrent();
+    const context = await settingsManager.chatContext.getCurrent();
     const isGroupChat = context.isGroupChat;
 
     const customButtons = [];
@@ -1263,8 +1352,8 @@ async function showPopup() {
                 classes: ['menu_button'],
                 action: async () => {
                     const targets = { character: true, chat: false };
-                    settingsManager.saveCurrentUISettings(targets, false);
-                    refreshPopupContent();
+                    await settingsManager.saveCurrentUISettings(targets, false);
+                    await refreshPopupContent();
                 }
             },
             {
@@ -1272,8 +1361,8 @@ async function showPopup() {
                 classes: ['menu_button'],
                 action: async () => {
                     const targets = { character: true, chat: true };
-                    settingsManager.saveCurrentUISettings(targets, false);
-                    refreshPopupContent();
+                    await settingsManager.saveCurrentUISettings(targets, false);
+                    await refreshPopupContent();
                 }
             }
         );
@@ -1285,8 +1374,8 @@ async function showPopup() {
                 classes: ['menu_button'],
                 action: async () => {
                     const targets = { character: true, chat: false };
-                    settingsManager.saveCurrentUISettings(targets, false);
-                    refreshPopupContent();
+                    await settingsManager.saveCurrentUISettings(targets, false);
+                    await refreshPopupContent();
                 }
             },
             {
@@ -1294,8 +1383,8 @@ async function showPopup() {
                 classes: ['menu_button'],
                 action: async () => {
                     const targets = { character: true, chat: true };
-                    settingsManager.saveCurrentUISettings(targets, false);
-                    refreshPopupContent();
+                    await settingsManager.saveCurrentUISettings(targets, false);
+                    await refreshPopupContent();
                 }
             }
         );
@@ -1308,8 +1397,8 @@ async function showPopup() {
             classes: ['menu_button'],
             action: async () => {
                 const targets = { character: false, chat: true };
-                settingsManager.saveCurrentUISettings(targets, false);
-                refreshPopupContent();
+                await settingsManager.saveCurrentUISettings(targets, false);
+                await refreshPopupContent();
             }
         },
         {
@@ -1331,7 +1420,7 @@ async function showPopup() {
                         }
                     }
                 }
-                refreshPopupContent();
+                await refreshPopupContent();
             }
         },
         {
@@ -1353,15 +1442,15 @@ async function showPopup() {
                         }
                     }
                 }
-                refreshPopupContent();
+                await refreshPopupContent();
             }
         },
         {
             text: '❌ Clear All',
             classes: ['menu_button'],
             action: async () => {
-                settingsManager.clearAllSettings();
-                refreshPopupContent();
+                await settingsManager.clearAllSettings();
+                await refreshPopupContent();
             }
         }
     );
@@ -1387,11 +1476,11 @@ async function showPopup() {
     }
 }
 
-function handlePopupClose(popup) {
+async function handlePopupClose(popup) {
     try {
         const popupElement = popup.dlg;
         const extensionSettings = storageAdapter.getExtensionSettings();
-        const context = settingsManager.chatContext.getCurrent();
+        const context = await settingsManager.chatContext.getCurrent();
         const isGroupChat = context.isGroupChat;
 
         let checkboxMappings = {};
@@ -1421,7 +1510,8 @@ function handlePopupClose(popup) {
 
         // Build newValues keyed by checkboxId
         const newValues = lodash.mapValues(checkboxMappings, (settingKey, checkboxId) => {
-            return popupElement.querySelector(`#${checkboxId}`)?.checked ?? extensionSettings.moduleSettings[settingKey];
+            const checkbox = popupElement.querySelector(`#${checkboxId}`);
+            return checkbox ? checkbox.checked : extensionSettings.moduleSettings[settingKey];
         });
 
         // Map newValues keys to setting keys for a fair comparison
@@ -1479,6 +1569,11 @@ function setupEventListeners() {
 
     // Register SillyTavern events
     function registerSillyTavernEvents() {
+        if (eventListenersRegistered) {
+            console.log('STMTL: Event listeners already registered, skipping');
+            return;
+        }
+
         try {
             if (!eventSource || !event_types) {
                 console.warn('STMTL: eventSource or event_types not available, retrying...');
@@ -1486,46 +1581,65 @@ function setupEventListeners() {
                 return;
             }
 
+            eventListenersRegistered = true;
+
             eventSource.on(event_types.CHARACTER_SELECTED, onCharacterChanged);
             eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
             eventSource.on(event_types.GROUP_CHAT_CREATED, () => {
-                setTimeout(() => {
-                    onCharacterChanged();
-                }, 500);
+                // Use the GROUP_UPDATED event instead of timeout for proper synchronization
+                onCharacterChanged();
             });
 
             eventSource.on(event_types.GROUP_MEMBER_DRAFTED, (chId) => {
-                // Use window.characters for broader compatibility
-                const chars = (typeof characters !== 'undefined') ? characters : window.characters;
-                if (!chars || typeof chId !== 'number' || chId < 0 || chId >= chars.length) {
-                    console.error('STMTL: Bad or missing character data: chId=', chId, 'characters=', chars);
-                } else {
+                try {
+                    // Use window.characters for broader compatibility
+                    const chars = (typeof characters !== 'undefined') ? characters : window.characters;
+
+                    if (!chars || !Array.isArray(chars)) {
+                        console.error('STMTL: Characters array not available or invalid');
+                        return;
+                    }
+
+                    if (typeof chId !== 'number' || chId < 0 || chId >= chars.length) {
+                        console.error('STMTL: Invalid character ID:', chId, 'characters length:', chars.length);
+                        return;
+                    }
+
                     const charObj = chars[chId];
-                    // Log all details for troubleshooting!
+                    if (!charObj) {
+                        console.error('STMTL: Character object is null or undefined at index:', chId);
+                        return;
+                    }
+
                     console.log('STMTL: group_member_drafted:', {
                         chId,
                         draftedCharacter: charObj,
-                        name: charObj && charObj.name,
-                        avatar: charObj && charObj.avatar,
+                        name: charObj.name,
+                        avatar: charObj.avatar,
                     });
-                    // Force this character as current for context
-                    if (charObj && charObj.name) {
-                        settingsManager.chatContext._forcedActiveCharacter = charObj.name; // or avatar if you key by that
-                        // Optionally log the forced value:
-                        console.log('STMTL: Forcing next active character to:', charObj.name);
+
+                    // Queue this character for context
+                    if (charObj.name && typeof charObj.name === 'string') {
+                        settingsManager.chatContext._queueActiveCharacter(charObj.name);
+                        console.log('STMTL: Queued next active character:', charObj.name);
+                    } else {
+                        console.warn('STMTL: Character name is invalid:', charObj.name);
                     }
+                } catch (error) {
+                    console.error('STMTL: Error in GROUP_MEMBER_DRAFTED handler:', error);
                 }
-                // Log before changing context!
+
+                // Always trigger context change, even if character lookup failed
                 settingsManager.onContextChanged();
             });
 
             const setupAutoSaveEvent = (eventType, eventName) => {
                 if (eventType) {
-                    eventSource.on(eventType, () => {
+                    eventSource.on(eventType, async () => {
                         const extensionSettings = storageAdapter?.getExtensionSettings();
                         if (!extensionSettings) return;
 
-                        const context = settingsManager?.chatContext.getCurrent();
+                        const context = await settingsManager?.chatContext.getCurrent();
                         if (!context) return;
 
                         let isAutoSaveActive = false;
@@ -1544,6 +1658,8 @@ function setupEventListeners() {
 
                         if (isAutoSaveActive && isExtensionEnabled) {
                             console.log(`STMTL: ${eventName} - Checking for changes to auto-save.`);
+                            // Note: debouncedModelSettingsChanged() calls onModelSettingsChanged() which is now async
+                            // The debounce wrapper handles this automatically
                             debouncedModelSettingsChanged();
                         }
                     });
@@ -1553,14 +1669,22 @@ function setupEventListeners() {
             setupAutoSaveEvent(event_types.GENERATION_STARTED, 'GENERATION_STARTED');
             setupAutoSaveEvent(event_types.CHAT_COMPLETION_PROMPT_READY, 'CHAT_COMPLETION_PROMPT_READY');
 
-            eventSource.on(event_types.MESSAGE_RECEIVED, (message) => {
+            // Listen for model changes directly instead of debouncing
+            eventSource.on(event_types.CHATCOMPLETION_MODEL_CHANGED, async () => {
+                if (!isApplyingSettings && isExtensionEnabled) {
+                    console.log('STMTL: Model changed - triggering auto-save');
+                    await onModelSettingsChanged();
+                }
+            });
+
+            eventSource.on(event_types.MESSAGE_RECEIVED, async (message) => {
                 if (message && !message.is_user) {
                     const speakerName = message.name;
                     const extensionSettings = storageAdapter?.getExtensionSettings();
 
                     if (extensionSettings?.moduleSettings.autoSaveCharacter && isExtensionEnabled) {
                         console.log(`STMTL: Auto-saving settings for speaker: ${speakerName}`);
-                        settingsManager?.saveCurrentSettingsForCharacter(speakerName, true);
+                        await settingsManager?.saveCurrentSettingsForCharacter(speakerName, true);
                     }
                 }
             });
@@ -1601,7 +1725,11 @@ function setupEventListeners() {
         console.log('STMTL: Model/temp/completion setting changed:', e.target.id);
         // Don't auto-save if we're currently applying settings (prevents feedback loop)
         if (!isApplyingSettings) {
-            debouncedModelSettingsChanged();
+            // Use immediate call instead of debounced for temperature changes
+            // Model changes are handled by CHATCOMPLETION_MODEL_CHANGED event
+            if (e.target.id === 'temp_openai' || e.target.id === 'temp_counter_openai') {
+                debouncedModelSettingsChanged();
+            }
         } else {
             console.log('STMTL: Skipping auto-save - currently applying settings');
         }
@@ -1742,13 +1870,23 @@ async function init() {
     // Check initial API compatibility
     checkApiCompatibility();
 
-    // Initial context load
-    setTimeout(() => {
-        if (settingsManager) {
-            settingsManager.onContextChanged();
-        }
-        console.log('STMTL: Initial context loaded');
-    }, 1000);
+    // Initial context load - use SETTINGS_LOADED_AFTER event if available
+    if (event_types.SETTINGS_LOADED_AFTER) {
+        eventSource.on(event_types.SETTINGS_LOADED_AFTER, () => {
+            if (settingsManager) {
+                settingsManager.onContextChanged();
+            }
+            console.log('STMTL: Initial context loaded after settings');
+        });
+    } else {
+        // Fallback for older versions
+        setTimeout(() => {
+            if (settingsManager) {
+                settingsManager.onContextChanged();
+            }
+            console.log('STMTL: Initial context loaded (fallback)');
+        }, 1000);
+    }
 
     console.log('STMTL: extension loaded successfully');
 }
@@ -1756,9 +1894,17 @@ async function init() {
 // ===== BOOTSTRAP =====
 
 $(document).ready(() => {
-    if (eventSource && event_types.APP_READY) {
+    if (eventSource && event_types && event_types.APP_READY) {
         eventSource.on(event_types.APP_READY, init);
+        console.log('STMTL: Registered for APP_READY event');
+    } else {
+        console.warn('STMTL: APP_READY event not available, using fallback initialization');
+        // Fallback initialization after a delay
+        setTimeout(() => {
+            if (!hasInitialized) {
+                console.log('STMTL: Running fallback initialization');
+                init();
+            }
+        }, 2000);
     }
-
-    setTimeout(init, 1500);
 });
