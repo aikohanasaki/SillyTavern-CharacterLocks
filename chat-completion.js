@@ -384,6 +384,218 @@ function ccGetSettings(apiInfo) {
     }
 }
 
+// ===== ENHANCED PROMPT EXPORTER =====
+
+/**
+ * Enhanced "Save Prompts As" function for SillyTavern
+ *
+ * This function extracts ALL prompts that have a data-pm-identifier,
+ * INCLUDING system prompts (main, jailbreak, nsfw, etc.) but EXCLUDING markers.
+ *
+ * Unlike the built-in export which only exports user-created prompts,
+ * this saves the complete prompt configuration including system prompts.
+ */
+class EnhancedPromptExporter {
+    constructor(promptManager) {
+        this.promptManager = promptManager;
+    }
+
+    /**
+     * Save all non-marker prompts based on what's currently in the UI
+     * @param {string} filename - Optional filename (without extension)
+     */
+    savePromptsAs(filename = 'enhanced-prompts') {
+        try {
+            // 1. Get all currently visible prompts from the DOM
+            const promptElements = document.querySelectorAll('#completion_prompt_manager_list [data-pm-identifier]');
+            const visibleIdentifiers = new Set();
+
+            promptElements.forEach(element => {
+                // Skip elements that have the marker class
+                if (element.classList.contains('completion_prompt_manager_marker')) {
+                    return;
+                }
+
+                const identifier = element.dataset.pmIdentifier;
+                if (identifier) {
+                    visibleIdentifiers.add(identifier);
+                }
+            });
+
+            // 2. Extract prompts - include system prompts but exclude markers
+            const prompts = this.promptManager.serviceSettings.prompts.filter(prompt => {
+                if (!prompt || !prompt.identifier) return false;
+
+                // Only include prompts that:
+                // - Have identifiers that are visible in the UI (have data-pm-identifier)
+                // - Are NOT marker prompts
+                return visibleIdentifiers.has(prompt.identifier) && !prompt.marker;
+            });
+
+            // 3. Extract prompt order for the current character/context
+            // IMPORTANT: Keep ALL entries (including markers) to preserve complete ordering
+            let promptOrder = [];
+
+            if ('global' === this.promptManager.configuration.promptOrder.strategy) {
+                // Global strategy - get the dummy character order
+                promptOrder = this.promptManager.getPromptOrderForCharacter({
+                    id: this.promptManager.configuration.promptOrder.dummyId
+                });
+
+            } else if ('character' === this.promptManager.configuration.promptOrder.strategy) {
+                // Character-specific strategy
+                if (this.promptManager.activeCharacter) {
+                    promptOrder = this.promptManager.getPromptOrderForCharacter(this.promptManager.activeCharacter);
+                }
+            } else {
+                throw new Error('Prompt order strategy not supported.');
+            }
+
+            // 4. Create export data structure
+            const exportData = {
+                prompts: prompts,
+                prompt_order: promptOrder,
+            };
+
+            // 5. Add metadata about what was included
+            const metadata = {
+                export_type: 'enhanced_with_system_prompts',
+                export_date: new Date().toISOString(),
+                total_prompts: prompts.length,
+                included_system_prompts: prompts.filter(p => p.system_prompt).map(p => p.identifier),
+                included_user_prompts: prompts.filter(p => !p.system_prompt).map(p => p.identifier),
+                excluded_markers: this.getMarkerIdentifiers(),
+                character_context: this.promptManager.activeCharacter?.name || 'Global',
+            };
+
+            // 6. Export using the PromptManager's export method
+            this.promptManager.export(exportData, 'enhanced', filename);
+
+            // 7. Log what was exported for debugging
+            console.log('Enhanced Prompt Export - Metadata:', metadata);
+
+            // 8. Show user feedback
+            if (typeof toastr !== 'undefined') {
+                toastr.success(`Exported ${prompts.length} prompts (${metadata.included_system_prompts.length} system, ${metadata.included_user_prompts.length} user)`);
+            }
+
+            return {
+                success: true,
+                exported: exportData,
+                metadata: metadata
+            };
+
+        } catch (error) {
+            console.error('Enhanced Prompt Export failed:', error);
+
+            if (typeof toastr !== 'undefined') {
+                toastr.error(`Export failed: ${error.message}`);
+            }
+
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    /**
+     * Check if a prompt identifier represents a marker prompt
+     * @param {string} identifier
+     * @returns {boolean}
+     */
+    isMarkerPrompt(identifier) {
+        const prompt = this.promptManager.getPromptById(identifier);
+        return prompt ? !!prompt.marker : false;
+    }
+
+    /**
+     * Get list of all marker identifiers for metadata
+     * @returns {string[]}
+     */
+    getMarkerIdentifiers() {
+        return this.promptManager.serviceSettings.prompts
+            .filter(prompt => prompt && prompt.marker)
+            .map(prompt => prompt.identifier);
+    }
+
+    /**
+     * Create a button in the prompt manager to trigger enhanced export
+     */
+    addEnhancedExportButton() {
+        // Find the existing export button
+        const existingExportBtn = document.querySelector('#prompt-manager-export');
+
+        if (existingExportBtn && !document.querySelector('#prompt-manager-enhanced-export')) {
+            // Create new enhanced export button
+            const enhancedBtn = document.createElement('a');
+            enhancedBtn.id = 'prompt-manager-enhanced-export';
+            enhancedBtn.className = 'menu_button fa-download fa-solid fa-fw';
+            enhancedBtn.title = 'Export all prompts including system prompts';
+            enhancedBtn.setAttribute('data-i18n', '[title]Export all prompts including system prompts');
+            enhancedBtn.style.backgroundColor = '#4a5c7a'; // Slightly different color to distinguish
+
+            // Add click handler
+            enhancedBtn.addEventListener('click', () => {
+                this.savePromptsAs();
+            });
+
+            // Insert after the regular export button
+            existingExportBtn.parentNode.insertBefore(enhancedBtn, existingExportBtn.nextSibling);
+
+            console.log('Enhanced export button added to prompt manager');
+        }
+    }
+
+    /**
+     * Alternative method: Save prompts via programmatic call
+     * @param {Object} options - Configuration options
+     */
+    savePromptsWithOptions(options = {}) {
+        const {
+            filename = 'custom-prompts',
+            includeSystemPrompts = true,
+            includeUserPrompts = true,
+            specificIdentifiers = null, // Array of specific identifiers to include
+        } = options;
+
+        // Override the default behavior if specific identifiers are provided
+        if (specificIdentifiers && Array.isArray(specificIdentifiers)) {
+            const prompts = specificIdentifiers.map(id => this.promptManager.getPromptById(id)).filter(Boolean);
+            const promptOrder = this.promptManager.getPromptOrderForCharacter(
+                this.promptManager.activeCharacter || { id: this.promptManager.configuration.promptOrder.dummyId }
+            ).filter(entry => specificIdentifiers.includes(entry.identifier));
+
+            return this.promptManager.export({
+                prompts: prompts,
+                prompt_order: promptOrder
+            }, 'custom', filename);
+        }
+
+        // Use the standard enhanced export
+        return this.savePromptsAs(filename);
+    }
+}
+
+// Usage:
+// 1. Basic usage with existing prompt manager:
+//    const exporter = new EnhancedPromptExporter(promptManager);
+//    exporter.savePromptsAs('my-enhanced-prompts');
+//
+// 2. Add button to UI:
+//    exporter.addEnhancedExportButton();
+//
+// 3. Programmatic with options:
+//    exporter.savePromptsWithOptions({
+//        filename: 'system-prompts-only',
+//        specificIdentifiers: ['main', 'jailbreak', 'nsfw']
+//    });
+
+// Export for use in SillyTavern
+if (typeof window !== 'undefined') {
+    window.EnhancedPromptExporter = EnhancedPromptExporter;
+}
+
 // ===== EXPORTS =====
 
 export const ccPromptHandlers = {
@@ -396,3 +608,5 @@ export const ccSettingsHandlers = {
     ccApplySettings,
     ccGetSettings
 };
+
+export { EnhancedPromptExporter };
