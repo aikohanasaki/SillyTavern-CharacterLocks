@@ -6,6 +6,7 @@
 
 // ===== IMPORTS FROM SILLYTAVERN CORE =====
 import { moment } from '../../../../lib.js';
+import { deepMerge } from '../../../utils.js';
 
 // ===== IMPORTS FROM EXTENSION UTILS =====
 import {
@@ -17,7 +18,9 @@ import {
     extractPresetValue,
     logNoPresetWarning,
     logSettingsCapture,
-    logSettingsApplication
+    logSettingsApplication,
+    formatSettings,
+    formatCCPrompts,
 } from './stcl-utils.js';
 import { getPromptManager, waitForPromptManager } from './templates.js';
 
@@ -35,14 +38,26 @@ function ccGetPromptState() {
             return {};
         }
 
+        // Validate serviceSettings structure
+        if (!promptManager.serviceSettings.prompts || !Array.isArray(promptManager.serviceSettings.prompts)) {
+            console.warn('STCL: Invalid prompts array in PromptManager');
+            return {};
+        }
+
         // Get the current active character for prompt ordering (or use global)
-        const activeCharacter = promptManager.activeCharacter || GLOBAL_DUMMY_CHARACTER_ID;
+        const activeCharacter = (promptManager.activeCharacter && typeof promptManager.activeCharacter === 'string')
+            ? promptManager.activeCharacter
+            : GLOBAL_DUMMY_CHARACTER_ID;
 
         // Collect essential prompt state
         const promptState = {
             // Save prompt definitions (focusing on user-customizable content)
             prompts: promptManager.serviceSettings.prompts
                 .filter(prompt => {
+                    // Validate prompt object structure before accessing properties
+                    if (!prompt || typeof prompt !== 'object' || !prompt.identifier) {
+                        return false;
+                    }
                     // Include system prompts that users commonly modify
                     const systemPrompts = ['main', 'nsfw', 'jailbreak', 'enhanceDefinitions'];
                     // Include custom prompts (non-system, non-marker)
@@ -65,14 +80,14 @@ function ccGetPromptState() {
                 })),
 
             // Save prompt ordering and enable states
-            prompt_order: promptManager.getPromptOrderForCharacter
+            prompt_order: (typeof promptManager.getPromptOrderForCharacter === 'function')
                 ? promptManager.getPromptOrderForCharacter(activeCharacter)
                 : promptManager.serviceSettings.prompt_order || [],
 
             // Metadata
             version: promptManager.configuration?.version || 1,
             activeCharacter: activeCharacter,
-            capturedAt: moment().toISOString()
+            capturedAt: (typeof moment === 'function') ? moment().toISOString() : new Date().toISOString()
         };
 
         console.log(`STCL: Captured CCPrompt state with ${promptState.prompts.length} prompts and ${promptState.prompt_order.length} order entries`);
@@ -116,18 +131,23 @@ async function ccApplyPrompts(ccPrompts) {
             console.log(`STCL: Restoring ${ccPrompts.prompts.length} prompts`);
 
             for (const savedPrompt of ccPrompts.prompts) {
+                // Validate savedPrompt structure
+                if (!savedPrompt || typeof savedPrompt !== 'object' || !savedPrompt.identifier) {
+                    console.warn('STCL: Skipping invalid prompt object:', savedPrompt);
+                    continue;
+                }
+
                 try {
                     // Find existing prompt by identifier
                     const existingPromptIndex = promptManager.serviceSettings.prompts
-                        .findIndex(p => p.identifier === savedPrompt.identifier);
+                        .findIndex(p => p && p.identifier === savedPrompt.identifier);
 
                     if (existingPromptIndex !== -1) {
                         // Update existing prompt
                         const existingPrompt = promptManager.serviceSettings.prompts[existingPromptIndex];
 
-                        // Preserve essential properties while updating content
-                        const updatedPrompt = {
-                            ...existingPrompt,
+                        // Preserve essential properties while updating content using ST's deepMerge
+                        const updatedPrompt = deepMerge({}, existingPrompt, {
                             name: savedPrompt.name || existingPrompt.name,
                             content: savedPrompt.content || existingPrompt.content,
                             role: savedPrompt.role || existingPrompt.role,
@@ -136,7 +156,7 @@ async function ccApplyPrompts(ccPrompts) {
                             injection_order: savedPrompt.injection_order ?? existingPrompt.injection_order,
                             injection_trigger: savedPrompt.injection_trigger || existingPrompt.injection_trigger || [],
                             forbid_overrides: savedPrompt.forbid_overrides ?? existingPrompt.forbid_overrides
-                        };
+                        });
 
                         promptManager.serviceSettings.prompts[existingPromptIndex] = updatedPrompt;
                         console.log(`STCL: Updated prompt "${savedPrompt.identifier}"`);
@@ -172,7 +192,7 @@ async function ccApplyPrompts(ccPrompts) {
 
             const targetCharacter = ccPrompts.activeCharacter || promptManager.activeCharacter || GLOBAL_DUMMY_CHARACTER_ID;
 
-            if (promptManager.setPromptOrderForCharacter) {
+            if (typeof promptManager.setPromptOrderForCharacter === 'function') {
                 // Use character-specific prompt ordering
                 try {
                     promptManager.setPromptOrderForCharacter(targetCharacter, ccPrompts.prompt_order);
@@ -186,21 +206,28 @@ async function ccApplyPrompts(ccPrompts) {
                 // Map the saved order to current prompts and apply globally
                 try {
                     ccPrompts.prompt_order.forEach(savedOrder => {
+                        // Validate savedOrder structure
+                        if (!savedOrder || typeof savedOrder !== 'object' || !savedOrder.identifier) {
+                            return;
+                        }
+
                         const matchingPrompt = promptManager.serviceSettings.prompts
-                            .find(p => p.identifier === savedOrder.identifier);
+                            .find(p => p && p.identifier === savedOrder.identifier);
 
                         if (matchingPrompt && savedOrder.enabled !== undefined) {
                             // Find corresponding order entry or create one
                             let orderEntry = promptManager.serviceSettings.prompt_order
-                                .find(o => o.identifier === savedOrder.identifier);
+                                .find(o => o && o.identifier === savedOrder.identifier);
 
                             if (orderEntry) {
                                 orderEntry.enabled = savedOrder.enabled;
                             } else {
-                                promptManager.serviceSettings.prompt_order.push({
+                                // Use a safer approach to add to the array
+                                const newOrderEntry = {
                                     identifier: savedOrder.identifier,
                                     enabled: savedOrder.enabled
-                                });
+                                };
+                                promptManager.serviceSettings.prompt_order.push(newOrderEntry);
                             }
                         }
                     });
@@ -213,11 +240,11 @@ async function ccApplyPrompts(ccPrompts) {
 
         // Save changes and refresh UI
         try {
-            if (promptManager.saveServiceSettings) {
+            if (typeof promptManager.saveServiceSettings === 'function') {
                 await promptManager.saveServiceSettings();
             }
 
-            if (promptManager.render) {
+            if (typeof promptManager.render === 'function') {
                 promptManager.render();
             }
 
@@ -242,22 +269,18 @@ async function ccApplyPrompts(ccPrompts) {
  * @returns {string} Formatted settings display
  */
 function ccFormatSettings(settings, completionSource, saved = false) {
-    const presetDisplay = settings.ccPreset || 'Default';
-
-    let ccPromptsDisplay = 'Default';
-    if (settings.ccPrompts && typeof settings.ccPrompts === 'object') {
-        const promptCount = settings.ccPrompts.prompts ? settings.ccPrompts.prompts.length : 0;
-        const orderCount = settings.ccPrompts.prompt_order ? settings.ccPrompts.prompt_order.length : 0;
-
-        if (promptCount > 0 || orderCount > 0) {
-            ccPromptsDisplay = `${promptCount} prompts, ${orderCount} order entries`;
-        }
+    if (!settings || typeof settings !== 'object') {
+        return 'Invalid settings provided';
+    }
+    if (!completionSource || typeof completionSource !== 'string') {
+        return 'Invalid completion source provided';
     }
 
-    return `API: ${completionSource}
-Preset: ${presetDisplay}
-CCPrompts: ${ccPromptsDisplay}
-${saved ? 'Status: Saved ✓' : 'Status: Current UI State'}`;
+    return formatSettings(settings, completionSource, saved, {
+        presetField: 'ccPreset',
+        promptsLabel: 'CCPrompts',
+        formatPrompts: formatCCPrompts
+    });
 }
 
 /**
@@ -266,20 +289,44 @@ ${saved ? 'Status: Saved ✓' : 'Status: Current UI State'}`;
  * @returns {Promise<boolean>} True if successful
  */
 async function ccApplySettings(settings) {
+    if (!settings || typeof settings !== 'object') {
+        console.warn('STCL: Invalid settings provided to ccApplySettings');
+        return false;
+    }
+
     logSettingsApplication('Chat Completion', settings);
 
-    // Apply CCPreset
-    if (settings.ccPreset) {
-        const presetSelector = $(SELECTORS.ccPreset);
-        await applyPreset(presetSelector, settings.ccPreset, 'CC');
-    }
+    try {
+        // Apply CCPreset
+        if (settings.ccPreset && typeof settings.ccPreset === 'string') {
+            if (!SELECTORS.ccPreset) {
+                console.error('STCL: CC preset selector not defined');
+                return false;
+            }
 
-    // Apply CCPrompts state
-    if (settings.ccPrompts) {
-        await ccApplyPrompts(settings.ccPrompts);
-    }
+            const presetSelector = $(SELECTORS.ccPreset);
+            if (presetSelector.length === 0) {
+                console.error('STCL: CC preset selector not found in DOM');
+                return false;
+            }
 
-    return true;
+            await applyPreset(presetSelector, settings.ccPreset, 'CC');
+        }
+
+        // Apply CCPrompts state
+        if (settings.ccPrompts && typeof settings.ccPrompts === 'object') {
+            const result = await ccApplyPrompts(settings.ccPrompts);
+            if (!result) {
+                console.warn('STCL: Failed to apply CC prompts');
+                return false;
+            }
+        }
+
+        return true;
+    } catch (error) {
+        console.error('STCL: Error applying CC settings:', error);
+        return false;
+    }
 }
 
 /**
@@ -289,32 +336,52 @@ async function ccApplySettings(settings) {
  */
 function ccGetSettings(apiInfo) {
     // Validate API info
+    if (!apiInfo || typeof apiInfo !== 'object') {
+        console.warn('STCL: Invalid apiInfo provided to ccGetSettings');
+        return null;
+    }
+
     if (!validateApiInfo(apiInfo, 'CC')) {
         return null;
     }
 
-    // Get current CCPreset
-    const presetSelector = $(SELECTORS.ccPreset);
-    const ccPreset = extractPresetValue(presetSelector);
+    try {
+        // Get current CCPreset
+        if (!SELECTORS.ccPreset) {
+            console.error('STCL: CC preset selector not defined');
+            return null;
+        }
 
-    if (!ccPreset) {
-        logNoPresetWarning('CC');
-        // Still continue, but note this in logs
+        const presetSelector = $(SELECTORS.ccPreset);
+        if (presetSelector.length === 0) {
+            console.error('STCL: CC preset selector not found in DOM');
+            return null;
+        }
+
+        const ccPreset = extractPresetValue(presetSelector);
+
+        if (!ccPreset) {
+            logNoPresetWarning('CC');
+            // Still continue, but note this in logs
+        }
+
+        // Get CCPrompts state
+        const ccPrompts = ccGetPromptState();
+
+        // Create settings object
+        const settings = createTimestampedSettings(apiInfo.completionSource, {
+            ccPreset: ccPreset,
+            ccPrompts: ccPrompts || {}
+        });
+
+        const promptsInfo = ccPrompts && ccPrompts.prompts ? `${ccPrompts.prompts.length} items` : '0 items';
+        logSettingsCapture('CC', ccPreset, promptsInfo);
+
+        return settings;
+    } catch (error) {
+        console.error('STCL: Error getting CC settings:', error);
+        return null;
     }
-
-    // Get CCPrompts state
-    const ccPrompts = ccGetPromptState();
-
-    // Create settings object
-    const settings = createTimestampedSettings(apiInfo.completionSource, {
-        ccPreset: ccPreset,
-        ccPrompts: ccPrompts || {}
-    });
-
-    const promptsInfo = ccPrompts && ccPrompts.prompts ? `${ccPrompts.prompts.length} items` : '0 items';
-    logSettingsCapture('CC', ccPreset, promptsInfo);
-
-    return settings;
 }
 
 // ===== EXPORTS =====
@@ -328,9 +395,4 @@ export const ccPromptHandlers = {
 export const ccSettingsHandlers = {
     ccApplySettings,
     ccGetSettings
-};
-
-export {
-    getPromptManager,
-    waitForPromptManager
 };

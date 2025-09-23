@@ -6,6 +6,8 @@
 
 // ===== IMPORTS FROM SILLYTAVERN CORE =====
 import { power_user } from '../../../power-user.js';
+import { debounce } from '../../../utils.js';
+import { DOMPurify } from '../../../../lib.js';
 
 // ===== IMPORTS FROM EXTENSION UTILS =====
 import {
@@ -17,9 +19,10 @@ import {
     extractPresetValue,
     logNoPresetWarning,
     logSettingsCapture,
-    logSettingsApplication
+    logSettingsApplication,
+    formatSettings,
+    formatTCPrompts
 } from './stcl-utils.js';
-import { moment } from '../../../../lib.js';
 
 // ===== HELPER FUNCTIONS =====
 
@@ -33,6 +36,9 @@ let getCurrentApiInfo = function() {
  * @param {Function} fn - The function to get current API info
  */
 export function setGetCurrentApiInfo(fn) {
+    if (typeof fn !== 'function') {
+        throw new Error('setGetCurrentApiInfo requires a function parameter');
+    }
     getCurrentApiInfo = fn;
 }
 
@@ -41,8 +47,17 @@ export function setGetCurrentApiInfo(fn) {
  * @returns {string} jQuery selector for the current preset dropdown
  */
 async function getCurrentPresetSelector() {
-    const apiInfo = await getCurrentApiInfo();
-    return PRESET_SELECTOR_MAP[apiInfo.completionSource] || SELECTORS.ccPreset;
+    try {
+        const apiInfo = await getCurrentApiInfo();
+        if (!apiInfo || typeof apiInfo !== 'object' || !apiInfo.completionSource) {
+            console.warn('STCL: Invalid apiInfo received in getCurrentPresetSelector');
+            return SELECTORS.ccPreset;
+        }
+        return PRESET_SELECTOR_MAP[apiInfo.completionSource] || SELECTORS.ccPreset;
+    } catch (error) {
+        console.error('STCL: Error getting current preset selector:', error);
+        return SELECTORS.ccPreset;
+    }
 }
 
 // ===== TEXT COMPLETION FUNCTIONS =====
@@ -55,38 +70,75 @@ function tcGetPromptState() {
     let tcPrompts = {};
     let promptsCount = 0;
 
+    /**
+     * Helper function to safely extract and validate value from selector
+     * @param {string} selectorKey - The key in SELECTORS object
+     * @returns {string|null} Cleaned value or null
+     */
+    function safeExtractValue(selectorKey) {
+        if (!selectorKey || typeof selectorKey !== 'string') {
+            console.warn('STCL: Invalid selector key provided');
+            return null;
+        }
+
+        if (!SELECTORS || typeof SELECTORS !== 'object') {
+            console.warn('STCL: SELECTORS object not available');
+            return null;
+        }
+
+        if (!SELECTORS[selectorKey]) {
+            console.warn(`STCL: Selector ${selectorKey} not defined`);
+            return null;
+        }
+
+        if (typeof $ !== 'function') {
+            console.warn('STCL: jQuery not available');
+            return null;
+        }
+
+        const selector = $(SELECTORS[selectorKey]);
+        if (selector.length === 0) {
+            return null;
+        }
+
+        const value = selector.val();
+        if (!value || typeof value !== 'string') {
+            return null;
+        }
+
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : null;
+    }
+
     try {
+        // Validate power_user availability
+        if (!power_user || typeof power_user !== 'object') {
+            console.warn('STCL: power_user not available');
+            return tcPrompts;
+        }
+
         // Context Template (only if available and has value)
-        const contextSelector = $(SELECTORS.tcContext);
-        if (contextSelector.length) {
-            const contextVal = contextSelector.val();
-            if (contextVal && contextVal?.toString?.()?.trim?.()) {
-                tcPrompts.contextTemplate = contextVal?.toString?.()?.trim?.() || '';
-                promptsCount++;
-            }
+        const contextVal = safeExtractValue('tcContext');
+        if (contextVal) {
+            tcPrompts.contextTemplate = contextVal;
+            promptsCount++;
         }
 
         // Instruct Mode (only if enabled and has value)
         if (power_user.instruct?.enabled) {
-            const instructSelector = $(SELECTORS.tcInstruct);
-            if (instructSelector.length) {
-                const instructVal = instructSelector.val();
-                if (instructVal && instructVal?.toString?.()?.trim?.()) {
-                    tcPrompts.instructPreset = instructVal?.toString?.()?.trim?.() || '';
-                    promptsCount++;
-                }
+            const instructVal = safeExtractValue('tcInstruct');
+            if (instructVal) {
+                tcPrompts.instructPreset = instructVal;
+                promptsCount++;
             }
         }
 
         // System Prompt (only if enabled and has value)
         if (power_user.sysprompt?.enabled) {
-            const syspromptSelector = $(SELECTORS.tcSysprompt);
-            if (syspromptSelector.length) {
-                const syspromptVal = syspromptSelector.val();
-                if (syspromptVal && syspromptVal?.toString?.()?.trim?.()) {
-                    tcPrompts.systemPrompt = syspromptVal?.toString?.()?.trim?.() || '';
-                    promptsCount++;
-                }
+            const syspromptVal = safeExtractValue('tcSysprompt');
+            if (syspromptVal) {
+                tcPrompts.systemPrompt = syspromptVal;
+                promptsCount++;
             }
         }
     } catch (error) {
@@ -102,40 +154,98 @@ function tcGetPromptState() {
  * @param {Object} tcPrompts - The TCPrompt state to apply
  */
 function tcApplyPrompts(tcPrompts) {
-    // Apply Context Template
-    if (tcPrompts.contextTemplate) {
-        const contextSelector = $(SELECTORS.tcContext);
-        if (contextSelector.length) {
-            const currentContext = contextSelector.val();
-            if (currentContext !== tcPrompts.contextTemplate && tcPrompts.contextTemplate?.toString?.()) {
-                console.log('STCL: Applying context template:', tcPrompts.contextTemplate);
-                contextSelector.val(tcPrompts.contextTemplate).trigger('change');
-            }
-        }
+    if (!tcPrompts || typeof tcPrompts !== 'object') {
+        console.warn('STCL: Invalid tcPrompts provided to tcApplyPrompts');
+        return false;
     }
 
-    // Apply Instruct Preset (only if instruct mode is enabled)
-    if (tcPrompts.instructPreset && power_user.instruct?.enabled) {
-        const instructSelector = $(SELECTORS.tcInstruct);
-        if (instructSelector.length) {
-            const currentInstruct = instructSelector.val();
-            if (currentInstruct !== tcPrompts.instructPreset && tcPrompts.instructPreset?.toString?.()) {
-                console.log('STCL: Applying instruct preset:', tcPrompts.instructPreset);
-                instructSelector.val(tcPrompts.instructPreset).trigger('change');
-            }
-        }
+    if (!power_user || typeof power_user !== 'object') {
+        console.warn('STCL: power_user not available for TC prompt application');
+        return false;
     }
 
-    // Apply System Prompt (only if sysprompt is enabled)
-    if (tcPrompts.systemPrompt && power_user.sysprompt?.enabled) {
-        const syspromptSelector = $(SELECTORS.tcSysprompt);
-        if (syspromptSelector.length) {
-            const currentSysprompt = syspromptSelector.val();
-            if (currentSysprompt !== tcPrompts.systemPrompt && tcPrompts.systemPrompt?.toString?.()) {
-                console.log('STCL: Applying system prompt:', tcPrompts.systemPrompt);
-                syspromptSelector.val(tcPrompts.systemPrompt).trigger('change');
+    /**
+     * Helper function to safely apply a value to a selector
+     * @param {string} selectorKey - The key in SELECTORS object
+     * @param {string} value - The value to apply
+     * @param {string} label - Label for logging
+     * @returns {boolean} Success status
+     */
+    function safeApplyValue(selectorKey, value, label) {
+        if (!selectorKey || typeof selectorKey !== 'string') {
+            console.warn('STCL: Invalid selector key provided');
+            return false;
+        }
+
+        if (!label || typeof label !== 'string') {
+            console.warn('STCL: Invalid label provided');
+            return false;
+        }
+
+        if (!SELECTORS || typeof SELECTORS !== 'object') {
+            console.warn('STCL: SELECTORS object not available');
+            return false;
+        }
+
+        if (!SELECTORS[selectorKey]) {
+            console.warn(`STCL: Selector ${selectorKey} not defined`);
+            return false;
+        }
+
+        if (!value || typeof value !== 'string') {
+            return false;
+        }
+
+        if (typeof $ !== 'function') {
+            console.warn('STCL: jQuery not available');
+            return false;
+        }
+
+        const selector = $(SELECTORS[selectorKey]);
+        if (selector.length === 0) {
+            console.warn(`STCL: ${label} selector not found in DOM`);
+            return false;
+        }
+
+        const currentValue = selector.val();
+        if (currentValue !== value) {
+            console.log(`STCL: Applying ${label}:`, value);
+            selector.val(value).trigger('change');
+            return true;
+        }
+        // Return true when no change needed - this is success, not failure
+        return true;
+    }
+
+    try {
+        let appliedCount = 0;
+
+        // Apply Context Template
+        if (tcPrompts.contextTemplate) {
+            if (safeApplyValue('tcContext', tcPrompts.contextTemplate, 'context template')) {
+                appliedCount++;
             }
         }
+
+        // Apply Instruct Preset (only if instruct mode is enabled)
+        if (tcPrompts.instructPreset && power_user.instruct?.enabled) {
+            if (safeApplyValue('tcInstruct', tcPrompts.instructPreset, 'instruct preset')) {
+                appliedCount++;
+            }
+        }
+
+        // Apply System Prompt (only if sysprompt is enabled)
+        if (tcPrompts.systemPrompt && power_user.sysprompt?.enabled) {
+            if (safeApplyValue('tcSysprompt', tcPrompts.systemPrompt, 'system prompt')) {
+                appliedCount++;
+            }
+        }
+
+        console.log(`STCL: Applied ${appliedCount} TC prompts`);
+        return true;
+    } catch (error) {
+        console.error('STCL: Error applying TC prompts:', error);
+        return false;
     }
 }
 
@@ -147,21 +257,22 @@ function tcApplyPrompts(tcPrompts) {
  * @returns {string} Formatted settings string
  */
 function tcFormatSettings(settings, completionSource, saved) {
-    const tcPreset = (settings.tcPreset && typeof settings.tcPreset === 'string') ? settings.tcPreset.trim() || 'N/A' : 'N/A';
-
-    // Build TCPrompts description
-    let tcPromptsDesc = [];
-    if (settings.tcPrompts && typeof settings.tcPrompts === 'object') {
-        if (settings.tcPrompts.contextTemplate) tcPromptsDesc.push('Context');
-        if (settings.tcPrompts.instructPreset) tcPromptsDesc.push('Instruct');
-        if (settings.tcPrompts.systemPrompt) tcPromptsDesc.push('SysPrompt');
+    if (!settings || typeof settings !== 'object') {
+        return 'Invalid settings provided';
     }
-    const tcPromptsDisplay = tcPromptsDesc.length > 0 ? tcPromptsDesc.join('+') : 'Default';
+    if (!completionSource || typeof completionSource !== 'string') {
+        return 'Invalid completion source provided';
+    }
 
-    return `Profile: ${completionSource}
-TCPreset: ${tcPreset}
-TCPrompts: ${tcPromptsDisplay}
-Saved: ${saved}`;
+    return formatSettings(settings, completionSource, saved, {
+        apiLabel: 'Profile',
+        presetField: 'tcPreset',
+        presetLabel: 'TCPreset',
+        defaultPreset: 'N/A',
+        promptsLabel: 'TCPrompts',
+        formatPrompts: formatTCPrompts,
+        formatStatus: (saved) => `Saved: ${saved}`
+    });
 }
 
 /**
@@ -170,20 +281,50 @@ Saved: ${saved}`;
  * @returns {Promise<boolean>} True if successful
  */
 async function tcApplySettings(settings) {
+    if (!settings || typeof settings !== 'object') {
+        console.warn('STCL: Invalid settings provided to tcApplySettings');
+        return false;
+    }
+
     logSettingsApplication('Text Completion', settings);
 
-    // Apply TCPreset
-    if (settings.tcPreset) {
-        const presetSelector = $(await getCurrentPresetSelector());
-        await applyPreset(presetSelector, settings.tcPreset, 'TC');
-    }
+    try {
+        // Apply TCPreset
+        if (settings.tcPreset && typeof settings.tcPreset === 'string') {
+            const presetSelectorString = await getCurrentPresetSelector();
+            if (!presetSelectorString) {
+                console.error('STCL: Could not get TC preset selector');
+                return false;
+            }
 
-    // Apply TCPrompts
-    if (settings.tcPrompts) {
-        tcApplyPrompts(settings.tcPrompts);
-    }
+            if (typeof $ !== 'function') {
+                console.error('STCL: jQuery not available');
+                return false;
+            }
 
-    return true;
+            const presetSelector = $(presetSelectorString);
+            if (presetSelector.length === 0) {
+                console.error('STCL: TC preset selector not found in DOM');
+                return false;
+            }
+
+            await applyPreset(presetSelector, settings.tcPreset, 'TC');
+        }
+
+        // Apply TCPrompts
+        if (settings.tcPrompts && typeof settings.tcPrompts === 'object') {
+            const result = tcApplyPrompts(settings.tcPrompts);
+            if (!result) {
+                console.warn('STCL: Failed to apply TC prompts');
+                return false;
+            }
+        }
+
+        return true;
+    } catch (error) {
+        console.error('STCL: Error applying TC settings:', error);
+        return false;
+    }
 }
 
 /**
@@ -193,37 +334,63 @@ async function tcApplySettings(settings) {
  */
 async function tcGetSettings(apiInfo) {
     // Validate API info
+    if (!apiInfo || typeof apiInfo !== 'object') {
+        console.warn('STCL: Invalid apiInfo provided to tcGetSettings');
+        return null;
+    }
+
     if (!validateApiInfo(apiInfo, 'TC')) {
         return null;
     }
 
-    // Get current TCPreset
-    let tcPreset = '';
     try {
-        const presetSelector = $(await getCurrentPresetSelector());
-        tcPreset = extractPresetValue(presetSelector);
+        // Get current TCPreset
+        let tcPreset = '';
+        try {
+            const presetSelectorString = await getCurrentPresetSelector();
+            if (!presetSelectorString) {
+                console.error('STCL: Could not get TC preset selector');
+                return null;
+            }
+
+            if (typeof $ !== 'function') {
+                console.error('STCL: jQuery not available');
+                return null;
+            }
+
+            const presetSelector = $(presetSelectorString);
+            if (presetSelector.length === 0) {
+                console.error('STCL: TC preset selector not found in DOM');
+                return null;
+            }
+
+            tcPreset = extractPresetValue(presetSelector);
+        } catch (error) {
+            console.warn('STCL: Error getting TC preset:', error);
+        }
+
+        if (!tcPreset) {
+            logNoPresetWarning('TC');
+            // Still continue, but note this in logs
+        }
+
+        // Get TCPrompts state
+        const tcPrompts = tcGetPromptState();
+
+        // Create settings object
+        const settings = createTimestampedSettings(apiInfo.completionSource, {
+            tcPreset: tcPreset,
+            tcPrompts: tcPrompts
+        });
+
+        const promptsCount = Object.keys(tcPrompts).length;
+        logSettingsCapture('TC', tcPreset, `${promptsCount} active`);
+
+        return settings;
     } catch (error) {
-        console.warn('STCL: Error getting TC preset:', error);
+        console.error('STCL: Error getting TC settings:', error);
+        return null;
     }
-
-    if (!tcPreset) {
-        logNoPresetWarning('TC');
-        // Still continue, but note this in logs
-    }
-
-    // Get TCPrompts state
-    const tcPrompts = tcGetPromptState();
-
-    // Create settings object
-    const settings = createTimestampedSettings(apiInfo.completionSource, {
-        tcPreset: tcPreset,
-        tcPrompts: tcPrompts
-    });
-
-    const promptsCount = Object.keys(tcPrompts).length;
-    logSettingsCapture('TC', tcPreset, `${promptsCount} active`);
-
-    return settings;
 }
 
 // ===== EXPORTS =====

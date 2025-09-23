@@ -1,3 +1,13 @@
+// ===== IMPORTS FROM SILLYTAVERN CORE =====
+import { deepMerge } from '../../../utils.js';
+// ===== IMPORTS FROM EXTENSION UTILS =====
+import {
+    getEntitySettings,
+    setEntitySettings,
+    validateEntityId,
+    ENTITY_TYPES
+} from './stcl-utils.js';
+
 const PREDEFINED_RULES = [
     { id: 'global_default', condition: '', preset: '', prompts: null, priority: 0, description: 'Global default/fallback' },
     { id: 'gpt_4o_mini', condition: 'gpt AND 4o AND mini', preset: '', prompts: null, priority: 20, description: 'GPT-4o mini' },
@@ -41,8 +51,11 @@ class BooleanExpressionEvaluator {
      * @returns {boolean} True if the condition matches the target
      */
     evaluate(condition, target) {
-        if (!condition || condition.trim() === '') {
+        if (!condition || typeof condition !== 'string' || condition.trim() === '') {
             return true; // Empty condition matches everything (global default)
+        }
+        if (!target || typeof target !== 'string') {
+            return false;
         }
 
         try {
@@ -63,6 +76,10 @@ class BooleanExpressionEvaluator {
      * @returns {Array} Array of tokens
      */
     tokenize(condition) {
+        if (!condition || typeof condition !== 'string') {
+            return [];
+        }
+
         const tokens = [];
         const regex = /\b(and\s+not|and|or|not)\b|\b\w+(?:\.\w+)*\b/gi;
         let match;
@@ -91,6 +108,10 @@ class BooleanExpressionEvaluator {
      * @returns {boolean} Evaluation result
      */
     parseExpression(target) {
+        if (!target || typeof target !== 'string') {
+            return false;
+        }
+
         let result = this.parseAndExpression(target);
 
         while (this.position < this.tokens.length) {
@@ -114,6 +135,10 @@ class BooleanExpressionEvaluator {
      * @returns {boolean} Evaluation result
      */
     parseAndExpression(target) {
+        if (!target || typeof target !== 'string') {
+            return false;
+        }
+
         let result = this.parseTerm(target);
 
         while (this.position < this.tokens.length) {
@@ -151,6 +176,9 @@ class BooleanExpressionEvaluator {
      * @returns {boolean} Evaluation result
      */
     parseTerm(target) {
+        if (!target || typeof target !== 'string') {
+            return false;
+        }
         if (this.position >= this.tokens.length) {
             return true;
         }
@@ -178,6 +206,12 @@ class BooleanExpressionEvaluator {
      * @returns {boolean} True if the term is found in the target
      */
     matchesTerm(term, target) {
+        if (!term || typeof term !== 'string') {
+            return false;
+        }
+        if (!target || typeof target !== 'string') {
+            return false;
+        }
         return target.includes(term);
     }
 }
@@ -189,6 +223,12 @@ class BooleanExpressionEvaluator {
  */
 export class ModelPromptManager {
     constructor(storageAdapter) {
+        if (!storageAdapter || typeof storageAdapter !== 'object') {
+            throw new Error('Storage adapter is required');
+        }
+        if (typeof storageAdapter.getExtensionSettings !== 'function') {
+            throw new Error('Storage adapter must have getExtensionSettings method');
+        }
         this.storage = storageAdapter;
         this.evaluator = new BooleanExpressionEvaluator();
     }
@@ -199,7 +239,7 @@ export class ModelPromptManager {
      */
     getDefaultMappings() {
         return {
-            rules: PREDEFINED_RULES.map(rule => ({ ...rule })), // Deep copy
+            rules: PREDEFINED_RULES.map(rule => deepMerge({}, rule)), // Deep copy using ST utility
             globalDefault: { preset: '', prompts: null },
             enableModelPromptLinks: true,
             followInheritanceChain: true
@@ -213,26 +253,34 @@ export class ModelPromptManager {
      * @returns {Object|null} The mappings object or null if not found
      */
     getMappings(context = 'global', id = null) {
-        const extensionSettings = this.storage.getExtensionSettings();
+        if (!this.storage || typeof this.storage.getExtensionSettings !== 'function') {
+            throw new Error('Storage adapter not properly initialized');
+        }
 
-        switch (context) {
-            case 'character':
-                if (!id) return null;
-                const charSettings = this.storage.getCharacterSettings(id);
-                return charSettings?.modelPromptMappings || null;
+        try {
+            switch (context) {
+                case 'character':
+                    if (!validateEntityId(id, ENTITY_TYPES.CHARACTER)) return null;
+                    const charSettings = getEntitySettings(this.storage.getUserSettings(), ENTITY_TYPES.CHARACTER, id);
+                    return charSettings?.modelPromptMappings || null;
 
-            case 'chat':
-                const chatSettings = this.storage.getChatSettings();
-                return chatSettings?.modelPromptMappings || null;
+                case 'chat':
+                    const chatSettings = getEntitySettings(this.storage.getUserSettings(), ENTITY_TYPES.CHAT, 'current');
+                    return chatSettings?.modelPromptMappings || null;
 
-            case 'group':
-                if (!id) return null;
-                const groupSettings = this.storage.getGroupSettings(id);
-                return groupSettings?.modelPromptMappings || null;
+                case 'group':
+                    if (!validateEntityId(id, ENTITY_TYPES.GROUP)) return null;
+                    const groupSettings = getEntitySettings(this.storage.getUserSettings(), ENTITY_TYPES.GROUP, id);
+                    return groupSettings?.modelPromptMappings || null;
 
-            case 'global':
-            default:
-                return extensionSettings.modelPromptMappings || this.getDefaultMappings();
+                case 'global':
+                default:
+                    const extensionSettings = this.storage.getExtensionSettings();
+                    return extensionSettings.modelPromptMappings || this.getDefaultMappings();
+            }
+        } catch (error) {
+            console.error('STCL: Error getting mappings:', error);
+            return null;
         }
     }
 
@@ -244,30 +292,40 @@ export class ModelPromptManager {
      * @returns {boolean} True if successful
      */
     setMappings(mappings, context = 'global', id = null) {
+        if (!mappings || typeof mappings !== 'object') {
+            throw new Error('Invalid mappings object provided');
+        }
+        if (!this.storage || typeof this.storage.getExtensionSettings !== 'function') {
+            throw new Error('Storage adapter not properly initialized');
+        }
+
         try {
             switch (context) {
                 case 'character':
-                    if (!id) return false;
-                    const charSettings = this.storage.getCharacterSettings(id) || {};
+                    if (!validateEntityId(id, ENTITY_TYPES.CHARACTER)) return false;
+                    const charSettings = getEntitySettings(this.storage.getUserSettings(), ENTITY_TYPES.CHARACTER, id) || {};
                     charSettings.modelPromptMappings = mappings;
-                    return this.storage.setCharacterSettings(id, charSettings);
+                    return setEntitySettings(this.storage.getUserSettings(), ENTITY_TYPES.CHARACTER, id, charSettings, this.storage);
 
                 case 'chat':
-                    const chatSettings = this.storage.getChatSettings() || {};
+                    const chatSettings = getEntitySettings(this.storage.getUserSettings(), ENTITY_TYPES.CHAT, 'current') || {};
                     chatSettings.modelPromptMappings = mappings;
-                    return this.storage.setChatSettings(chatSettings);
+                    return setEntitySettings(this.storage.getUserSettings(), ENTITY_TYPES.CHAT, 'current', chatSettings, this.storage);
 
                 case 'group':
-                    if (!id) return false;
-                    const groupSettings = this.storage.getGroupSettings(id) || {};
+                    if (!validateEntityId(id, ENTITY_TYPES.GROUP)) return false;
+                    const groupSettings = getEntitySettings(this.storage.getUserSettings(), ENTITY_TYPES.GROUP, id) || {};
                     groupSettings.modelPromptMappings = mappings;
-                    return this.storage.setGroupSettings(id, groupSettings);
+                    return setEntitySettings(this.storage.getUserSettings(), ENTITY_TYPES.GROUP, id, groupSettings, this.storage);
 
                 case 'global':
                 default:
                     const extensionSettings = this.storage.getExtensionSettings();
                     extensionSettings.modelPromptMappings = mappings;
-                    this.storage.saveExtensionSettings();
+                    if (typeof this.storage.saveSettings !== 'function') {
+                        throw new Error('Storage adapter saveSettings method not available');
+                    }
+                    this.storage.saveSettings();
                     return true;
             }
         } catch (error) {
@@ -340,11 +398,11 @@ export class ModelPromptManager {
                                 const isConfigured = hasPreset || hasPrompts;
 
                                 // Always add matching rules, regardless of configuration
-                                matchingRules.push({
+                                matchingRules.push(deepMerge({}, {
                                     ...rule,
                                     priority: typeof rule.priority === 'number' ? rule.priority : 0,
                                     isConfigured: isConfigured
-                                });
+                                }));
 
                                 console.log(`STCL: Rule "${rule.id}" matched model "${modelName}" - ${isConfigured ? 'configured' : 'not configured'}`);
                             }
@@ -420,6 +478,10 @@ export class ModelPromptManager {
      * @returns {Promise<Object|null>} Mappings object following inheritance preferences
      */
     async getMappingsWithInheritance(context) {
+        if (!this.storage || typeof this.storage.getExtensionSettings !== 'function') {
+            throw new Error('Storage adapter not properly initialized');
+        }
+
         try {
             const extensionSettings = this.storage.getExtensionSettings();
             if (!extensionSettings || typeof extensionSettings !== 'object') {
@@ -569,7 +631,7 @@ export class ModelPromptManager {
 
             // If we found scope-specific mappings, use them but ensure enableModelPromptLinks reflects global state
             if (bestMappings) {
-                const resultMappings = { ...bestMappings };
+                const resultMappings = deepMerge({}, bestMappings);
                 // If globally enabled, override local disable
                 if (isGloballyEnabled && !resultMappings.enableModelPromptLinks) {
                     resultMappings.enableModelPromptLinks = true;
@@ -594,6 +656,13 @@ export class ModelPromptManager {
      * @returns {boolean} True if condition matches
      */
     testCondition(condition, modelName) {
+        if (!condition || typeof condition !== 'string') {
+            return false;
+        }
+        if (!modelName || typeof modelName !== 'string') {
+            return false;
+        }
+
         try {
             return this.evaluator.evaluate(condition, modelName);
         } catch (error) {
@@ -607,7 +676,7 @@ export class ModelPromptManager {
      * @returns {Array} Array of predefined rule templates
      */
     getPredefinedRules() {
-        return PREDEFINED_RULES.map(rule => ({ ...rule })); // Deep copy
+        return PREDEFINED_RULES.map(rule => deepMerge({}, rule)); // Deep copy using ST utility
     }
 
     /**
@@ -618,6 +687,13 @@ export class ModelPromptManager {
      * @returns {boolean} True if successful
      */
     addOrUpdateRule(rule, context = 'global', id = null) {
+        if (!rule || typeof rule !== 'object') {
+            throw new Error('Invalid rule object provided');
+        }
+        if (!rule.id || typeof rule.id !== 'string') {
+            throw new Error('Rule must have a valid ID');
+        }
+
         try {
             const mappings = this.getMappings(context, id) || this.getDefaultMappings();
 
@@ -630,10 +706,10 @@ export class ModelPromptManager {
 
             if (existingIndex >= 0) {
                 // Update existing rule
-                mappings.rules[existingIndex] = { ...rule };
+                mappings.rules[existingIndex] = deepMerge({}, rule);
             } else {
                 // Add new rule
-                mappings.rules.push({ ...rule });
+                mappings.rules.push(deepMerge({}, rule));
             }
 
             return this.setMappings(mappings, context, id);
@@ -651,6 +727,10 @@ export class ModelPromptManager {
      * @returns {boolean} True if successful
      */
     removeRule(ruleId, context = 'global', id = null) {
+        if (!ruleId || typeof ruleId !== 'string') {
+            throw new Error('Invalid rule ID provided');
+        }
+
         try {
             const mappings = this.getMappings(context, id);
             if (!mappings || !mappings.rules) {

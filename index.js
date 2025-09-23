@@ -3,20 +3,22 @@
 // This is crucial for understanding what "Profile", "Preset", and "Prompts" mean in this extension.
 
 // ===== IMPORTS FROM SILLYTAVERN CORE =====
+// DO NOT IMPORT TOASTR DIRECTLY - USE THE GLOBAL `toastr` INSTANCE INSTEAD
 import { eventSource, event_types, saveSettingsDebounced } from '../../../../script.js';
-import { extension_settings, getContext } from '../../../extensions.js';
+import { extension_settings, getContext, saveMetadataDebounced } from '../../../extensions.js';
 import { Popup, POPUP_TYPE } from '../../../popup.js';
 import { getPresetManager } from '../../../preset-manager.js';
 import { power_user } from '../../../power-user.js';
 import { getChatCompletionModel } from '../../../openai.js';
+import { debounce, uuidv4, isValidUrl, deepMerge } from '../../../utils.js';
 // Index.js specific imports
 import { chat_metadata, name2, systemUserName, neutralCharacterName, characters } from '../../../../script.js';
-import { saveMetadataDebounced } from '../../../extensions.js';
 import { lodash, moment, Handlebars, DOMPurify, morphdom } from '../../../../lib.js';
 import { selected_group, groups, editGroup } from '../../../group-chats.js';
 
 // ===== IMPORTS FROM OUR EXTENSION MODULES =====
-import { PromptTemplateManager, promptHelpers } from './templates.js';
+import { config as extensionConfig } from './config.js';
+import { PromptTemplateManager, promptHelpers, setGetCurrentApiInfo as setTemplateApiInfo } from './templates.js';
 import { ccPromptHandlers, ccSettingsHandlers } from './chat-completion.js';
 import { tcPromptHandlers, tcSettingsHandlers, setGetCurrentApiInfo } from './text-completion.js';
 import { ModelPromptManager } from './boolcompare.js';
@@ -26,6 +28,11 @@ import {
     registerEventHandler, unregisterAllEventHandlers, isUsingChatCompletion,
     formatBasicSettingsInfo, getEmptySettings, getDefaultSettings, safeCheckbox, safeElement,
     validateApiInfo, applyPreset, createTimestampedSettings,
+    // Generic CRUD utilities
+    getEntitySettings, setEntitySettings, deleteEntitySettings, hasEntitySettings,
+    logCrudOperation, validateEntityId, CRUD_OPERATIONS, ENTITY_TYPES,
+    // Generic logging utilities
+    logSettingsOperation, logContextOperation, logDataOperation,
     MODULE_NAME, GLOBAL_DUMMY_CHARACTER_ID, SELECTORS, PRESET_SELECTOR_MAP
 } from './stcl-utils.js';
 
@@ -65,15 +72,21 @@ class CircularBuffer {
             return;
         }
 
-        if (this.size < this.maxSize) {
-            this.buffer[this.tail] = item;
-            this.tail = (this.tail + 1) % this.maxSize;
-            this.size++;
+        // Store values to prevent race conditions
+        const currentSize = this.size;
+        const currentTail = this.tail;
+        const currentHead = this.head;
+
+        if (currentSize < this.maxSize) {
+            this.buffer[currentTail] = item;
+            this.tail = (currentTail + 1) % this.maxSize;
+            this.size = currentSize + 1;
         } else {
-            // Overwrite oldest item
-            this.buffer[this.tail] = item;
-            this.tail = (this.tail + 1) % this.maxSize;
-            this.head = (this.head + 1) % this.maxSize;
+            // Overwrite oldest item - update atomically
+            this.buffer[currentTail] = item;
+            this.tail = (currentTail + 1) % this.maxSize;
+            this.head = (currentHead + 1) % this.maxSize;
+            // Size remains the same when buffer is full
         }
     }
 
@@ -212,18 +225,15 @@ class MultiUserManager {
         this.getCurrentUserHandle = () => 'default-user';
         this.isAdmin = () => true;
         this.initialized = false;
-        this.yamlConfig = null;
+        this.extensionConfig = null;
     }
 
     async initialize() {
         if (this.initialized) return;
 
-        try {
-            // Load YAML configuration first
-            await this.loadConfigYAML();
-        } catch (error) {
-            console.warn('STCL: Failed to load config.yaml, using defaults:', error.message);
-        }
+        // Load configuration from config.js (always available since it's imported)
+        this.extensionConfig = extensionConfig;
+        console.log('STCL: Loaded configuration from config.js');
 
         try {
             // Try to import user management functions from SillyTavern
@@ -261,10 +271,10 @@ class MultiUserManager {
     }
 
     getConfig() {
-        // Priority order: Extension settings > YAML config > defaults
+        // Priority order: Extension settings > JS config > defaults
         const extensionSettings = extension_settings[MODULE_NAME];
-        const extensionConfig = extensionSettings?.multiUserConfig || {};
-        const yamlConfig = this.yamlConfig || {};
+        const extensionUserConfig = extensionSettings?.multiUserConfig || {};
+        const jsConfig = this.extensionConfig || {};
         const { multiUserConfig: defaultConfig } = DEFAULT_SETTINGS;
 
         // Merge configurations with proper priority using spread and destructuring
@@ -277,7 +287,7 @@ class MultiUserManager {
         ];
 
         return configKeys.reduce((config, key) => {
-            config[key] = extensionConfig[key] ?? yamlConfig[key] ?? defaultConfig[key];
+            config[key] = extensionUserConfig[key] ?? jsConfig[key] ?? defaultConfig[key];
             return config;
         }, {});
     }
@@ -328,71 +338,6 @@ class MultiUserManager {
         return null; // Use root level
     }
 
-    async loadConfigYAML() {
-        try {
-            const configPath = '/extensions/third-party/SillyTavern-CharacterLocks/config.yaml';
-            const response = await fetch(configPath);
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-
-            const yamlText = await response.text();
-            this.yamlConfig = this.parseSimpleYAML(yamlText);
-
-            // Loaded config.yaml successfully
-            return this.yamlConfig;
-
-        } catch (error) {
-            console.warn('STCL: Could not load config.yaml:', error.message);
-            this.yamlConfig = null;
-            throw error;
-        }
-    }
-
-    parseSimpleYAML(yamlText) {
-        const config = {};
-        const lines = yamlText.split('\n');
-
-        for (const line of lines) {
-            const trimmed = line.trim();
-
-            // Skip empty lines and comments
-            if (!trimmed || trimmed.startsWith('#')) {
-                continue;
-            }
-
-            // Parse key: value pairs
-            const colonIndex = trimmed.indexOf(':');
-            if (colonIndex === -1) {
-                continue;
-            }
-
-            const key = trimmed.substring(0, colonIndex).trim();
-            let value = trimmed.substring(colonIndex + 1).trim();
-
-            // Remove quotes if present
-            if ((value.startsWith('"') && value.endsWith('"')) ||
-                (value.startsWith("'") && value.endsWith("'"))) {
-                value = value.slice(1, -1);
-            }
-
-            // Convert to appropriate type
-            if (value === 'true') {
-                config[key] = true;
-            } else if (value === 'false') {
-                config[key] = false;
-            } else if (value === '' || value === '""' || value === "''") {
-                config[key] = '';
-            } else if (!isNaN(value) && value.trim() !== '') {
-                config[key] = Number(value);
-            } else {
-                config[key] = value;
-            }
-        }
-
-        return config;
-    }
 }
 
 // ===== MASTER SOURCE MANAGEMENT =====
@@ -526,7 +471,9 @@ class MasterSourceLoader {
 
             // Rate limiting check (simple implementation)
             const rateLimitKey = `fetch_${sourceUrl}`;
-            const lastFetch = this.lastFetchTimes?.get?.(rateLimitKey) || 0;
+            const lastFetch = (this.lastFetchTimes && typeof this.lastFetchTimes.get === 'function')
+                ? this.lastFetchTimes.get(rateLimitKey) || 0
+                : 0;
             const minInterval = 60000; // Minimum 1 minute between fetches of same URL
 
             if (Date.now() - lastFetch < minInterval) {
@@ -535,7 +482,7 @@ class MasterSourceLoader {
 
             // Create abort controller for timeout (compatible with older browsers)
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const timeoutId = createManagedTimeout(() => controller.abort(), 10000);
 
             try {
                 response = await fetch(sourceUrl, {
@@ -547,11 +494,13 @@ class MasterSourceLoader {
                     signal: controller.signal
                 });
             } finally {
-                clearTimeout(timeoutId);
+                clearManagedTimer(timeoutId);
             }
 
             // Track fetch time for rate limiting
-            this.lastFetchTimes.set(rateLimitKey, Date.now());
+            if (this.lastFetchTimes && typeof this.lastFetchTimes.set === 'function') {
+                this.lastFetchTimes.set(rateLimitKey, Date.now());
+            }
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -566,7 +515,10 @@ class MasterSourceLoader {
             // Local file path (relative to SillyTavern)
             response = await fetch(sourceUrl, {
                 method: 'GET',
-                headers: getRequestHeaders()
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
             });
 
             if (!response.ok) {
@@ -582,7 +534,12 @@ class MasterSourceLoader {
         }
 
         // Parse and validate JSON
-        const data = JSON.parse(text);
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (parseError) {
+            throw new Error(`Invalid JSON format: ${parseError.message}`);
+        }
 
         // Basic security check - ensure it's an object
         if (typeof data !== 'object' || data === null) {
@@ -643,11 +600,16 @@ class MasterSourceLoader {
             }
         }
 
-        // Allow local file paths (relative to SillyTavern) - be more restrictive
-        if (url.startsWith('/api/') || url.startsWith('./') || url.startsWith('../')) {
-            // Block path traversal attempts
-            if (url.includes('..') && !url.startsWith('../')) {
-                console.warn('STCL: Potential path traversal detected, rejected');
+        // Allow only specific safe API endpoints
+        if (url.startsWith('/api/stcl/') || url.startsWith('/extensions/third-party/SillyTavern-CharacterLocks/')) {
+            // Strict path validation - no traversal allowed
+            if (url.includes('..') || url.includes('//') || url.includes('\\')) {
+                console.warn('STCL: Path traversal or invalid characters detected, rejected');
+                return false;
+            }
+            // Only allow specific file extensions
+            if (url.includes('.') && !url.endsWith('.json') && !url.endsWith('.yaml') && !url.endsWith('.yml')) {
+                console.warn('STCL: Invalid file extension, rejected');
                 return false;
             }
             return true;
@@ -719,10 +681,20 @@ class MasterSourceLoader {
         }
 
         // Override local templates with master source data
+        if (!storageAdapter || typeof storageAdapter.getExtensionSettings !== 'function') {
+            console.error('STCL: Storage adapter not available');
+            return;
+        }
+
         const extensionSettings = storageAdapter.getExtensionSettings();
         const userSettings = storageAdapter.getUserSettings();
 
-        userSettings.promptTemplates = { ...templates };
+        if (!userSettings || typeof userSettings !== 'object') {
+            console.error('STCL: Invalid user settings');
+            return;
+        }
+
+        userSettings.promptTemplates = deepMerge({}, templates);
 
         console.log(`STCL: Applied ${Object.keys(templates).length} templates from master source`);
         storageAdapter.saveExtensionSettings();
@@ -735,8 +707,18 @@ class MasterSourceLoader {
         }
 
         // Override local filters with master source data
+        if (!storageAdapter || typeof storageAdapter.getExtensionSettings !== 'function') {
+            console.error('STCL: Storage adapter not available');
+            return;
+        }
+
         const extensionSettings = storageAdapter.getExtensionSettings();
         const userSettings = storageAdapter.getUserSettings();
+
+        if (!userSettings || typeof userSettings !== 'object') {
+            console.error('STCL: Invalid user settings');
+            return;
+        }
 
         if (!userSettings.modelPromptMappings) {
             userSettings.modelPromptMappings = {
@@ -747,7 +729,7 @@ class MasterSourceLoader {
             };
         }
 
-        userSettings.modelPromptMappings.rules = [...filters];
+        userSettings.modelPromptMappings.rules = Array.isArray(filters) ? [...filters] : [];
 
         console.log(`STCL: Applied ${filters.length} filter rules from master source`);
         storageAdapter.saveExtensionSettings();
@@ -827,8 +809,38 @@ class MasterSourceLoader {
 
             const templates = userSettings.promptTemplates || {};
 
+            // Also try to capture templates from SillyTavern's preset system
+            let stPresetTemplates = {};
+            try {
+                // Get current preset settings if available
+                if (typeof getCurrentApiInfo === 'function') {
+                    const apiInfo = getCurrentApiInfo();
+                    console.log('STCL: Current API info for template export:', apiInfo);
+
+                    // Try to get current preset content
+                    const presetSelector = apiInfo?.completionSource === 'openai' ? '#openai_preset' : '#preset_openai';
+                    const currentPreset = $(presetSelector).val();
+                    if (currentPreset) {
+                        stPresetTemplates[currentPreset] = {
+                            name: currentPreset,
+                            captured_from: 'ST_preset_system',
+                            timestamp: new Date().toISOString()
+                        };
+                        console.log('STCL: Captured ST preset template:', currentPreset);
+                    }
+                }
+            } catch (error) {
+                console.log('STCL: Could not capture ST preset templates:', error.message);
+            }
+
+            // Combine extension templates with ST preset templates
+            const allTemplates = {
+                ...templates,
+                ...stPresetTemplates
+            };
+
             // Validate that we have at least some data to export
-            if (Object.keys(templates).length === 0) {
+            if (Object.keys(allTemplates).length === 0) {
                 console.warn('STCL: No templates found to export');
             }
 
@@ -836,7 +848,7 @@ class MasterSourceLoader {
                 version: "1.0",
                 timestamp: new Date().toISOString(),
                 exported_by: this.multiUserManager.getUserHandle(),
-                templates: templates
+                templates: allTemplates
             };
 
             return JSON.stringify(exportData, null, 2);
@@ -958,18 +970,29 @@ class ChatContext {
 
     async _buildContextWithTimeout() {
         return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                reject(new Error('Context building timed out after 5 seconds'));
+            let isResolved = false;
+
+            const timeout = createManagedTimeout(() => {
+                if (!isResolved) {
+                    isResolved = true;
+                    reject(new Error('Context building timed out after 5 seconds'));
+                }
             }, 5000);
 
             this._buildContext()
                 .then(context => {
-                    clearTimeout(timeout);
-                    resolve(context);
+                    if (!isResolved) {
+                        isResolved = true;
+                        clearManagedTimer(timeout);
+                        resolve(context);
+                    }
                 })
                 .catch(error => {
-                    clearTimeout(timeout);
-                    reject(error);
+                    if (!isResolved) {
+                        isResolved = true;
+                        clearManagedTimer(timeout);
+                        reject(error);
+                    }
                 });
         });
     }
@@ -1206,50 +1229,33 @@ class StorageAdapter {
 
     // Character settings
     getCharacterSettings(characterName) {
-        if (!characterName) {
-            console.warn('STCL: Cannot get character settings - invalid name');
-            return null;
-        }
-
-        const normalizedName = this._normalizeCharacterName(characterName);
-        const userSettings = this.getUserSettings();
-
-        const settings = userSettings.characterSettings?.[normalizedName] || null;
-
-        if (settings) {
-            console.log(`STCL: Retrieved character settings for "${normalizedName}"`);
-            console.log('STCL: Settings retrieved:', settings);
-        } else {
-            console.log(`STCL: No settings found for "${normalizedName}"`);
-        }
-
-        return settings;
+        return getEntitySettings(
+            this.getUserSettings(),
+            ENTITY_TYPES.CHARACTER,
+            characterName,
+            this._normalizeCharacterName.bind(this)
+        );
     }
 
     async setCharacterSettings(characterName, settings) {
-        if (!characterName) {
-            console.warn('STCL: Cannot save character settings - invalid name');
-            return false;
-        }
-
         try {
-            const normalizedName = this._normalizeCharacterName(characterName);
             const userSettings = this.getUserSettings();
+            const success = setEntitySettings(
+                userSettings,
+                ENTITY_TYPES.CHARACTER,
+                characterName,
+                settings,
+                this._normalizeCharacterName.bind(this)
+            );
 
-            if (!userSettings.characterSettings) {
-                userSettings.characterSettings = {};
+            if (success) {
+                await new Promise(resolve => {
+                    this.saveExtensionSettings();
+                    // Wait a bit for debounced save to complete
+                    createManagedTimeout(resolve, 100);
+                });
             }
-
-            userSettings.characterSettings[normalizedName] = settings;
-
-            console.log('STCL: Settings saved:', settings);
-
-            await new Promise(resolve => {
-                this.saveExtensionSettings();
-                // Wait a bit for debounced save to complete
-                setTimeout(resolve, 100);
-            });
-            return true;
+            return success;
         } catch (error) {
             console.error('STCL: Error saving character settings:', error);
             return false;
@@ -1257,65 +1263,47 @@ class StorageAdapter {
     }
 
     deleteCharacterSettings(characterName) {
-        if (!characterName) {
-            console.warn('STCL: Cannot delete character settings - invalid name');
-            return false;
-        }
-
-        const normalizedName = this._normalizeCharacterName(characterName);
         const userSettings = this.getUserSettings();
+        const success = deleteEntitySettings(
+            userSettings,
+            ENTITY_TYPES.CHARACTER,
+            characterName,
+            this._normalizeCharacterName.bind(this)
+        );
 
-        if (userSettings.characterSettings?.[normalizedName]) {
-            delete userSettings.characterSettings[normalizedName];
-            console.log(`STCL: Deleted character settings for "${normalizedName}"`);
+        if (success) {
             this.saveExtensionSettings();
-            return true;
         }
-
-        console.log(`STCL: No settings to delete for "${normalizedName}"`);
-        return false;
+        return success;
     }
 
     // Group settings
     getGroupSettings(groupId) {
-        if (!groupId) {
-            console.warn('STCL: Cannot get group settings - invalid ID');
-            return null;
-        }
-
-        const userSettings = this.getUserSettings();
-        const settings = userSettings.groupSettings?.[groupId] || null;
-
-        if (settings) {
-            console.log(`STCL: Retrieved group settings for group ID "${groupId}"`);
-        } else {
-            console.log(`STCL: No group settings found for group ID "${groupId}"`);
-        }
-
-        return settings;
+        return getEntitySettings(
+            this.getUserSettings(),
+            ENTITY_TYPES.GROUP,
+            groupId
+        );
     }
 
     async setGroupSettings(groupId, settings) {
-        if (!groupId) {
-            console.warn('STCL: Cannot save group settings - invalid ID');
-            return false;
-        }
-
         try {
             const userSettings = this.getUserSettings();
-            if (!userSettings.groupSettings) {
-                userSettings.groupSettings = {};
+            const success = setEntitySettings(
+                userSettings,
+                ENTITY_TYPES.GROUP,
+                groupId,
+                settings
+            );
+
+            if (success) {
+                await new Promise(resolve => {
+                    this.saveExtensionSettings();
+                    // Wait a bit for debounced save to complete
+                    createManagedTimeout(resolve, 100);
+                });
             }
-
-            userSettings.groupSettings[groupId] = settings;
-            console.log(`STCL: Saved group settings for group ID "${groupId}"`);
-
-            await new Promise(resolve => {
-                this.saveExtensionSettings();
-                // Wait a bit for debounced save to complete
-                setTimeout(resolve, 100);
-            });
-            return true;
+            return success;
         } catch (error) {
             console.error('STCL: Error saving group settings:', error);
             return false;
@@ -1323,22 +1311,17 @@ class StorageAdapter {
     }
 
     deleteGroupSettings(groupId) {
-        if (!groupId) {
-            console.warn('STCL: Cannot delete group settings - invalid ID');
-            return false;
-        }
-
         const userSettings = this.getUserSettings();
+        const success = deleteEntitySettings(
+            userSettings,
+            ENTITY_TYPES.GROUP,
+            groupId
+        );
 
-        if (userSettings.groupSettings?.[groupId]) {
-            delete userSettings.groupSettings[groupId];
-            console.log(`STCL: Deleted group settings for group ID "${groupId}"`);
+        if (success) {
             this.saveExtensionSettings();
-            return true;
         }
-
-        console.log(`STCL: No group settings to delete for group ID "${groupId}"`);
-        return false;
+        return success;
     }
 
     // Chat settings
@@ -1348,9 +1331,9 @@ class StorageAdapter {
             const settings = metadata?.[this.EXTENSION_KEY] || null;
             
             if (settings) {
-                console.log('STCL: Retrieved chat settings:', settings);
+                logSettingsOperation('Retrieved', 'chat settings', settings);
             } else {
-                console.log('STCL: No chat settings found');
+                logSettingsOperation('No', 'chat settings found');
             }
             
             return settings;
@@ -1369,12 +1352,12 @@ class StorageAdapter {
             }
 
             metadata[this.EXTENSION_KEY] = settings;
-            console.log('STCL: Saved chat settings:', settings);
+            logSettingsOperation('Saved', 'chat settings', settings);
 
             await new Promise(resolve => {
                 this._triggerMetadataSave();
                 // Wait a bit for debounced save to complete
-                setTimeout(resolve, 100);
+                createManagedTimeout(resolve, 100);
             });
             return true;
         } catch (error) {
@@ -1388,7 +1371,7 @@ class StorageAdapter {
             const metadata = await getCurrentChatMetadata();
             if (metadata?.[this.EXTENSION_KEY]) {
                 delete metadata[this.EXTENSION_KEY];
-                console.log('STCL: Deleted chat settings');
+                logSettingsOperation('Deleted', 'chat settings');
                 this._triggerMetadataSave();
                 return true;
             }
@@ -1448,7 +1431,7 @@ class StorageAdapter {
             try {
                 await editGroup(groupId, false, false);
                 // Wait a bit for the save to complete
-                await new Promise(resolve => setTimeout(resolve, 100));
+                await new Promise(resolve => createManagedTimeout(resolve, 100));
             } catch (error) {
                 console.warn('STCL: Error calling editGroup:', error);
                 // Still return true since the data was set, just save may have failed
@@ -1476,7 +1459,7 @@ class StorageAdapter {
                 try {
                     await editGroup(groupId, false, false);
                     // Wait a bit for the save to complete
-                    await new Promise(resolve => setTimeout(resolve, 100));
+                    await new Promise(resolve => createManagedTimeout(resolve, 100));
                 } catch (error) {
                     console.warn('STCL: Error calling editGroup:', error);
                     // Still return true since the data was deleted, just save may have failed
@@ -1586,7 +1569,7 @@ class SettingsManager {
     async loadCurrentSettings() {
         try {
             const context = await this.chatContext.getCurrent();
-            console.log('STCL: Loading settings for context:', context);
+            logSettingsOperation('Loading', 'settings for context', context);
 
             this.currentSettings = this._getEmptySettings();
 
@@ -1596,7 +1579,7 @@ class SettingsManager {
                 await this._loadSingleSettings(context);
             }
 
-            console.log('STCL: Loaded settings:', this.currentSettings);
+            logSettingsOperation('Loaded', 'settings', this.currentSettings);
             return this.currentSettings;
         } catch (error) {
             console.error('STCL: Error loading settings:', error);
@@ -1696,24 +1679,35 @@ class SettingsManager {
         }
 
         let queueItems = [];
+        let lockAcquired = false;
+
         try {
             await acquireLock('contextQueue');
+            lockAcquired = true;
+
+            // Double-check processing flag after acquiring lock
+            if (processingContext) {
+                console.log('STCL: Context change started while waiting for lock');
+                return;
+            }
+
             if (contextChangeQueue.length === 0) {
                 return;
             }
 
-            // Set processing flag inside lock to prevent race condition
+            // Set processing flag atomically with queue operations
             processingContext = true;
-
-            // Copy and clear queue atomically
             queueItems = contextChangeQueue.toArray();
             contextChangeQueue.clear();
+
         } catch (error) {
             console.error('STCL: Error acquiring queue lock for processing:', error);
-            processingContext = false; // Reset flag on error
             return;
         } finally {
-            releaseLock('contextQueue');
+            // Always release lock before long-running operations
+            if (lockAcquired) {
+                releaseLock('contextQueue');
+            }
         }
         try {
             // Process the latest context change (discard duplicates)
@@ -1787,7 +1781,7 @@ class SettingsManager {
                 return false;
             }
 
-            console.log(`STCL: Applying ${resolved.source} settings:`, resolved.settings);
+            logSettingsOperation('Applying', `${resolved.source} settings`, resolved.settings);
             const result = await this._applySettingsToUI(resolved.settings);
 
             // After applying regular settings, check for model-based overrides
@@ -1811,7 +1805,16 @@ class SettingsManager {
 
             console.log(`STCL: Checking model-based settings for model: "${apiInfo.model}"`);
 
-            const modelMatch = await modelPromptManager.evaluateModel(apiInfo.model, context);
+            let modelMatch = null;
+            try {
+                if (typeof modelPromptManager.evaluateModel !== 'function') {
+                    throw new Error('evaluateModel method not available');
+                }
+                modelMatch = await modelPromptManager.evaluateModel(apiInfo.model, context);
+            } catch (evaluateError) {
+                console.error('STCL: Error evaluating model-based rules:', evaluateError);
+                return false;
+            }
 
             if (modelMatch) {
                 console.log(`STCL: Found model-based match: ${modelMatch.description} (${modelMatch.ruleId})`);
@@ -2380,9 +2383,9 @@ function cleanupExtension() {
     // Cleanup all registered observers
     observerRegistry.cleanup();
 
-    // Clear queues
-    contextChangeQueue.length = 0;
-    characterQueue.length = 0;
+    // Clear queues using proper methods
+    contextChangeQueue.clear();
+    characterQueue.clear();
 
     // Reset flags
     processingContext = false;
@@ -2524,7 +2527,7 @@ async function getCurrentApiInfo() {
 }
 
 // Set up the getCurrentApiInfo dependency for prompt helpers now that the function is defined
-promptHelpers.setGetCurrentApiInfo(getCurrentApiInfo);
+setTemplateApiInfo(getCurrentApiInfo);
 
 
 function formatSettingsInfo(settings) {
@@ -2587,14 +2590,17 @@ Handlebars.registerHelper('moment', function(date) {
     }
 });
 
+
+
 const popupTemplate = Handlebars.compile(`
 <div class="completion_prompt_manager_popup_entry">
-    <div class="completion_prompt_manager_error {{#unless isExtensionEnabled}}caution{{/unless}}">
-        <span>API Status: <strong>{{statusText}}</strong></span>
-    </div>
+    <!-- API Status and User Information -->
+    <div class="info-block">
+        <div class="completion_prompt_manager_error {{#unless isExtensionEnabled}}caution{{/unless}}">
+            <span>API Status: <strong>{{statusText}}</strong></span>
+        </div>
 
-    {{#if userInfo.isMultiUser}}
-    <div class="completion_prompt_manager_popup_entry">
+        {{#if userInfo.isMultiUser}}
         <div class="completion_prompt_manager_error info">
             <span>User: <strong>{{userInfo.userHandle}}</strong>{{#if userInfo.isAdmin}} (Admin){{/if}}</span>
         </div>
@@ -2613,8 +2619,8 @@ const popupTemplate = Handlebars.compile(`
             <span>🔍 Filter editing disabled (master source configured)</span>
         </div>
         {{/if}}
+        {{/if}}
     </div>
-    {{/if}}
 
     {{#if masterSourceInfo.templatesEnabled}}
     <div class="completion_prompt_manager_popup_entry">
@@ -2644,53 +2650,41 @@ const popupTemplate = Handlebars.compile(`
     </div>
     {{/if}}
 
-    <!-- Configuration Section -->
-    <div class="completion_prompt_manager_popup_entry_form_control">
-        <h4>📋 Configuration</h4>
-
-        <!-- Memory Settings -->
+        <!-- Settings -->
         <div class="m-t-1 m-b-1">
-            <h5 class="text-muted">Memory Settings</h5>
+            <h5 class="standoutHeader">Settings</h5>
+            <div class="flex-container flexFlowColumn alignItemsCenter">
             {{#each checkboxes}}
-            {{#unless (or (eq id "stcl-enable-model-prompt-links") (eq id "stcl-show-other-notifications"))}}
-            <label class="checkbox_label">
-                <input type="checkbox" id="{{id}}" {{#if checked}}checked{{/if}} {{#unless ../isExtensionEnabled}}{{#if requiresApi}}disabled{{/if}}{{/unless}}>
-                <span>{{label}}</span>
-            </label>
-            {{/unless}}
-            {{/each}}
-        </div>
-
-        <!-- Advanced Features -->
-        <div class="m-t-1 m-b-1">
-            <h5 class="text-muted">Advanced Features</h5>
-            {{#each checkboxes}}
-            {{#if (eq id "stcl-enable-model-prompt-links")}}
-            <label class="checkbox_label">
-                <input type="checkbox" id="{{id}}" {{#if checked}}checked{{/if}} {{#unless ../isExtensionEnabled}}{{#if requiresApi}}disabled{{/if}}{{/unless}}>
-                <span>{{label}}</span>
+            {{#if (eq section "core")}}
+            <label class="checkbox_label flex-container alignItemsCenter marginTop5">
+                <input type="checkbox" id="{{id}}" {{#if checked}}checked{{/if}} {{#unless ../isExtensionEnabled}}{{#if requiresApi}}disabled{{/if}}{{/unless}} class="margin0">
+                <span class="marginLeft10">{{label}}</span>
             </label>
             {{/if}}
             {{/each}}
+            </div>
         </div>
 
-        <!-- Notification Settings -->
+        <!-- Other Settings -->
         <div class="m-t-1 m-b-1">
-            <h5 class="text-muted">Notification Settings</h5>
+            <h5 class="standoutHeader">Other Settings</h5>
+            <div class="flex-container flexFlowColumn alignItemsCenter">
             {{#each checkboxes}}
-            {{#if (eq id "stcl-show-other-notifications")}}
-            <label class="checkbox_label">
-                <input type="checkbox" id="{{id}}" {{#if checked}}checked{{/if}} {{#unless ../isExtensionEnabled}}{{#if requiresApi}}disabled{{/if}}{{/unless}}>
-                <span>{{label}}</span>
+            {{#if (eq section "advanced")}}
+            <label class="checkbox_label flex-container alignItemsCenter marginTop5">
+                <input type="checkbox" id="{{id}}" {{#if checked}}checked{{/if}} {{#unless ../isExtensionEnabled}}{{#if requiresApi}}disabled{{/if}}{{/unless}} class="margin0">
+                <span class="marginLeft10">{{label}}</span>
             </label>
             {{/if}}
             {{/each}}
+            </div>
         </div>
     </div>
 
-    <!-- Settings Information Display -->
+    <!-- Settings Information Display - Only show when in a valid chat context -->
+    {{#if hasValidChatContext}}
     <div class="completion_prompt_manager_popup_entry_form_control">
-        <h4>💾 Current Settings</h4>
+        <h4 class="standoutHeader">💾 Current Settings</h4>
         {{#if isGroupChat}}
         <h5>Group Settings:</h5>
         <div class="completion_prompt_manager_popup_entry_form_control marginTop10">
@@ -2727,6 +2721,7 @@ const popupTemplate = Handlebars.compile(`
         </div>
         {{/if}}
     </div>
+    {{/if}}
 </div>
 `);
 
@@ -2822,31 +2817,79 @@ async function getPopupContent() {
         }
     }
 
-    let checkboxes = [];
-    
-    if (isGroupChat) {
-        checkboxes = [
-            { id: 'stcl-enable-character', label: 'Remember per group', checked: extensionSettings.moduleSettings.enableGroupMemory, requiresApi: true },
-            { id: 'stcl-enable-chat', label: 'Remember per chat', checked: extensionSettings.moduleSettings.enableChatMemory, requiresApi: true },
-            { id: 'stcl-prefer-group-over-chat', label: 'Prefer group settings over chat', checked: extensionSettings.moduleSettings.preferGroupOverChat, requiresApi: true },
-            { id: 'stcl-prefer-individual-character', label: 'Prefer individual character settings', checked: extensionSettings.moduleSettings.preferIndividualCharacterInGroup, requiresApi: true },
-            { id: 'stcl-enable-model-prompt-links', label: 'Enable Model-Prompt Links', checked: extensionSettings.modelPromptMappings?.enableModelPromptLinks ?? true, requiresApi: true },
-            { id: 'stcl-show-other-notifications', label: 'Show other notifications', checked: extensionSettings.moduleSettings.showOtherNotifications, requiresApi: false }
-        ];
-    } else {
-        checkboxes = [
-            { id: 'stcl-enable-character', label: 'Remember per character', checked: extensionSettings.moduleSettings.enableCharacterMemory, requiresApi: true },
-            { id: 'stcl-enable-chat', label: 'Remember per chat', checked: extensionSettings.moduleSettings.enableChatMemory, requiresApi: true },
-            { id: 'stcl-prefer-character', label: 'Prefer character settings over chat', checked: extensionSettings.moduleSettings.preferCharacterOverChat, requiresApi: true },
-            { id: 'stcl-enable-model-prompt-links', label: 'Enable Model-Prompt Links', checked: extensionSettings.modelPromptMappings?.enableModelPromptLinks ?? true, requiresApi: true },
-            { id: 'stcl-show-other-notifications', label: 'Show other notifications', checked: extensionSettings.moduleSettings.showOtherNotifications, requiresApi: false }
-        ];
-    }
+    // Create separate arrays for different sections
+    const coreSettings = [
+        {
+            id: 'stcl-enable-character',
+            label: isGroupChat ? 'Remember per group' : 'Remember per character',
+            checked: isGroupChat ? extensionSettings.moduleSettings.enableGroupMemory : extensionSettings.moduleSettings.enableCharacterMemory,
+            requiresApi: true,
+            section: 'core'
+        },
+        {
+            id: 'stcl-enable-chat',
+            label: 'Remember per chat',
+            checked: extensionSettings.moduleSettings.enableChatMemory,
+            requiresApi: true,
+            section: 'core'
+        }
+    ];
+
+    const preferenceSettings = isGroupChat ? [
+        {
+            id: 'stcl-prefer-group-over-chat',
+            label: 'Prefer group settings over chat',
+            checked: extensionSettings.moduleSettings.preferGroupOverChat,
+            requiresApi: true,
+            section: 'core'
+        },
+        {
+            id: 'stcl-prefer-individual-character',
+            label: 'Prefer individual character settings',
+            checked: extensionSettings.moduleSettings.preferIndividualCharacterInGroup,
+            requiresApi: true,
+            section: 'core'
+        }
+    ] : [
+        {
+            id: 'stcl-prefer-character',
+            label: 'Prefer character settings over chat',
+            checked: extensionSettings.moduleSettings.preferCharacterOverChat,
+            requiresApi: true,
+            section: 'core'
+        }
+    ];
+
+    const advancedSettings = [
+        {
+            id: 'stcl-enable-model-prompt-links',
+            label: 'Enable Model-Prompt Links',
+            checked: extensionSettings.modelPromptMappings?.enableModelPromptLinks ?? true,
+            requiresApi: true,
+            section: 'advanced'
+        },
+        {
+            id: 'stcl-show-other-notifications',
+            label: 'Show notifications',
+            checked: extensionSettings.moduleSettings.showOtherNotifications,
+            requiresApi: false,
+            section: 'advanced'
+        }
+    ];
+
+    // Combine all settings
+    const checkboxes = [...coreSettings, ...preferenceSettings, ...advancedSettings];
+
+    // Determine if we're in a valid chat context
+    const hasValidChatContext = isGroupChat ?
+        (context.groupId && context.groupId !== null) :
+        (context.characterName && context.characterName !== null);
 
     const templateData = {
         isExtensionEnabled: true, // Extension is always enabled
         statusText,
         isGroupChat,
+        hasValidChatContext,
         groupOrCharLabel: isGroupChat ? 'Group' : 'Character',
         characterInfo: formatSettingsInfo(settingsManager.currentSettings.character),
         groupInfo: formatSettingsInfo(settingsManager.currentSettings.group),
@@ -2865,7 +2908,31 @@ async function getPopupContent() {
         masterSourceInfo: masterSourceInfo
     };
 
-    return DOMPurify.sanitize(popupTemplate(templateData));
+    // Sanitize template data before processing to prevent XSS
+    const sanitizedTemplateData = {
+        ...templateData,
+        // Sanitize string properties
+        statusText: DOMPurify.sanitize(templateData.statusText || ''),
+        // Recursively sanitize nested objects
+        userInfo: Object.keys(templateData.userInfo || {}).reduce((acc, key) => {
+            const value = templateData.userInfo[key];
+            acc[key] = typeof value === 'string' ? DOMPurify.sanitize(value) : value;
+            return acc;
+        }, {}),
+        masterSourceInfo: Object.keys(templateData.masterSourceInfo || {}).reduce((acc, key) => {
+            const value = templateData.masterSourceInfo[key];
+            acc[key] = typeof value === 'string' ? DOMPurify.sanitize(value) : value;
+            return acc;
+        }, {})
+    };
+
+    try {
+        const renderedTemplate = popupTemplate(sanitizedTemplateData);
+        return DOMPurify.sanitize(renderedTemplate);
+    } catch (templateError) {
+        console.error('STCL: Error rendering popup template:', templateError);
+        return '<div class="error">Error loading popup content</div>';
+    }
 }
 
 async function refreshPopupContent() {
@@ -2886,7 +2953,20 @@ async function refreshPopupContent() {
         if (contentElement) {
             // Clean up old event listeners before morphing DOM
             cleanupPopupEventListeners();
-            morphdom(contentElement, tempContainer);
+
+            // Safe DOM morphing with error handling
+            try {
+                if (typeof morphdom !== 'function') {
+                    throw new Error('morphdom library not available');
+                }
+                morphdom(contentElement, tempContainer);
+            } catch (morphError) {
+                console.error('STCL: Error during DOM morphing:', morphError);
+                // Fallback: replace innerHTML safely
+                if (tempContainer && tempContainer.innerHTML) {
+                    contentElement.innerHTML = DOMPurify.sanitize(tempContainer.innerHTML);
+                }
+            }
             // Re-setup event listeners after content refresh using proper DOM ready detection
             try {
                 await setupPopupEventListenersAsync();
@@ -3205,7 +3285,7 @@ async function setupPopupEventListenersAsync() {
 
     try {
         // Wait for checkbox to be ready
-        const modelPromptCheckbox = await waitForElement('#stcl-enable-model-prompt-links', popup, 2000);
+        const modelPromptCheckbox = await utilsWaitForElement('#stcl-enable-model-prompt-links', popup, 2000);
         if (modelPromptCheckbox && !modelPromptCheckbox.dataset.stclListenerAdded) {
             modelPromptCheckbox.dataset.stclListenerAdded = 'true';
             console.log('STCL: Setting up Model-Prompt Links checkbox listener');
@@ -3223,24 +3303,27 @@ async function setupPopupEventListenersAsync() {
             });
         }
 
-        // Wait for Configure Rules button to be ready
-        const configureRulesButton = await waitForElement('#stcl-configure-rules', popup, 2000);
-        if (configureRulesButton && !configureRulesButton.dataset.stclListenerAdded) {
-            configureRulesButton.dataset.stclListenerAdded = 'true';
-            console.log('STCL: Setting up Configure Rules button listener');
+        // Check for Configure Rules button (optional - may not exist in all popup contexts)
+        try {
+            const configureRulesButton = await utilsWaitForElement('#stcl-configure-rules', popup, 1000);
+            if (configureRulesButton && !configureRulesButton.dataset.stclListenerAdded) {
+                configureRulesButton.dataset.stclListenerAdded = 'true';
+                console.log('STCL: Setting up Configure Rules button listener');
 
-            configureRulesButton.addEventListener('click', async function(event) {
-                console.log('STCL: Configure Rules button clicked');
-                event.preventDefault();
-                event.stopPropagation();
-                try {
-                    await showRulesConfigurationPopup();
-                } catch (error) {
-                    console.error('STCL: Error opening rules configuration:', error);
-                }
-            });
-        } else if (!configureRulesButton) {
-            console.warn('STCL: Configure Rules button not found after waiting');
+                configureRulesButton.addEventListener('click', async function(event) {
+                    console.log('STCL: Configure Rules button clicked');
+                    event.preventDefault();
+                    event.stopPropagation();
+                    try {
+                        await showRulesConfigurationPopup();
+                    } catch (error) {
+                        console.error('STCL: Error opening rules configuration:', error);
+                    }
+                });
+            }
+        } catch (error) {
+            // Configure Rules button doesn't exist in this popup context - that's OK
+            console.log('STCL: Configure Rules button not found (may not be needed in this context)');
         }
 
         console.log('STCL: Event listeners setup completed');
@@ -3315,11 +3398,25 @@ function cleanupPopupEventListeners() {
     const popup = currentPopupInstance.dlg;
     console.log('STCL: Cleaning up popup event listeners');
 
-    // Remove listener markers to clean up
-    const elementsWithListeners = popup?.querySelectorAll?.('[data-stcl-listener-added]') || [];
-    elementsWithListeners.forEach(element => {
-        delete element.dataset.stclListenerAdded;
-    });
+    // Comprehensive cleanup with error handling
+    try {
+        const elementsWithListeners = popup.querySelectorAll('[data-stcl-listener-added]');
+        elementsWithListeners.forEach(element => {
+            try {
+                // Clone element to completely remove all event listeners
+                const newElement = element.cloneNode(true);
+                delete newElement.dataset.stclListenerAdded;
+                if (element.parentNode) {
+                    element.parentNode.replaceChild(newElement, element);
+                }
+            } catch (error) {
+                console.warn('STCL: Error cleaning up element listener:', error);
+                delete element.dataset.stclListenerAdded;
+            }
+        });
+    } catch (error) {
+        console.error('STCL: Error during comprehensive cleanup:', error);
+    }
 
     // Additional cleanup: remove elements if they're being replaced
     const modelPromptCheckbox = popup?.querySelector?.('#stcl-enable-model-prompt-links');
@@ -3716,8 +3813,8 @@ function generateRulesHtml(rules, presets, canEdit, currentModel = null) {
 // Helper function to scroll to the currently matching rule
 function scrollToMatchingRule() {
     try {
-        const matchingRule = document.querySelector('[data-current-match="true"]');
-        const rulesContainer = document.getElementById('rules-container');
+        const matchingRule = safeElement('[data-current-match="true"]');
+        const rulesContainer = safeElement('#rules-container');
 
         if (matchingRule && rulesContainer) {
             // Scroll the matching rule into view within the rules container
@@ -3750,7 +3847,7 @@ function getAvailableModels(completionSource) {
 
         // First, try to get models from SillyTavern's model selectors based on completion source
         const modelSelector = `#model_${completionSource}_select`;
-        const selectorElement = document.querySelector(modelSelector);
+        const selectorElement = safeElement(modelSelector);
 
         if (selectorElement) {
             const models = [];
@@ -3783,7 +3880,7 @@ function getAvailableModels(completionSource) {
 
         if (alternativeSelectors[completionSource]) {
             for (const selector of alternativeSelectors[completionSource]) {
-                const element = document.querySelector(selector);
+                const element = safeElement(selector);
                 if (element) {
                     const models = [];
                     const options = element?.querySelectorAll?.('option') || [];
@@ -3843,7 +3940,7 @@ function getAvailableModels(completionSource) {
 function setupModelPromptConfigEventListeners(apiInfo, availableModels, modelPromptInfo) {
     try {
         // Enable/disable toggle
-        const enableToggle = document.getElementById('stcl_enable_model_prompt_links');
+        const enableToggle = safeElement('#stcl_enable_model_prompt_links');
         if (enableToggle) {
             enableToggle.addEventListener('change', async function() {
                 const isEnabled = this.checked;
@@ -3868,13 +3965,13 @@ function setupModelPromptConfigEventListeners(apiInfo, availableModels, modelPro
 
                     // Update the matching rule display
                     const matchedRuleText = modelMatch ? `${modelMatch.description}${modelMatch.isConfigured ? '' : ' (no prompt linked)'}` : 'No match';
-                    const currentModelElement = document.querySelector('.completion_prompt_manager_popup_entry_form_control:nth-child(3) p:nth-child(2)');
+                    const currentModelElement = safeElement('.completion_prompt_manager_popup_entry_form_control:nth-child(3) p:nth-child(2)');
                     if (currentModelElement) {
                         currentModelElement.innerHTML = `<strong>Matching Rule:</strong> ${matchedRuleText}`;
                     }
 
                     // Enable/disable apply button
-                    const applyBtn = document.getElementById('apply-rules-btn');
+                    const applyBtn = safeElement('#apply-rules-btn');
                     if (applyBtn) {
                         applyBtn.disabled = !isEnabled;
                     }
@@ -3887,7 +3984,7 @@ function setupModelPromptConfigEventListeners(apiInfo, availableModels, modelPro
         }
 
         // Filter expression validation with real-time testing
-        const filterInput = document.getElementById('filter-expression');
+        const filterInput = safeElement('#filter-expression');
         if (filterInput) {
             // Add debouncing to avoid excessive API calls during rapid typing
             let validationTimeout;
@@ -3907,7 +4004,7 @@ function setupModelPromptConfigEventListeners(apiInfo, availableModels, modelPro
         }
 
         // Scope toggle for global vs source-specific filters
-        const scopeToggle = document.getElementById('filter-scope-global');
+        const scopeToggle = safeElement('#filter-scope-global');
         if (scopeToggle) {
             scopeToggle.addEventListener('change', async function() {
                 await toggleFilterScope(this.checked);
@@ -3915,28 +4012,28 @@ function setupModelPromptConfigEventListeners(apiInfo, availableModels, modelPro
         }
 
         // Dual-list management buttons
-        const moveAllToSource = document.getElementById('move-all-to-source');
+        const moveAllToSource = safeElement('#move-all-to-source');
         if (moveAllToSource) {
             moveAllToSource.addEventListener('click', function() {
                 moveFiltersToSource('all');
             });
         }
 
-        const moveOneToSource = document.getElementById('move-one-to-source');
+        const moveOneToSource = safeElement('#move-one-to-source');
         if (moveOneToSource) {
             moveOneToSource.addEventListener('click', function() {
                 moveFiltersToSource('selected');
             });
         }
 
-        const moveOneToGlobal = document.getElementById('move-one-to-global');
+        const moveOneToGlobal = safeElement('#move-one-to-global');
         if (moveOneToGlobal) {
             moveOneToGlobal.addEventListener('click', function() {
                 moveFiltersToGlobal('selected');
             });
         }
 
-        const moveAllToGlobal = document.getElementById('move-all-to-global');
+        const moveAllToGlobal = safeElement('#move-all-to-global');
         if (moveAllToGlobal) {
             moveAllToGlobal.addEventListener('click', function() {
                 moveFiltersToGlobal('all');
@@ -3952,7 +4049,7 @@ function setupModelPromptConfigEventListeners(apiInfo, availableModels, modelPro
         });
 
         // Rule management buttons
-        const addRuleBtn = document.getElementById('add-rule-btn');
+        const addRuleBtn = safeElement('#add-rule-btn');
         if (addRuleBtn) {
             addRuleBtn.addEventListener('click', async function() {
                 try {
@@ -3965,7 +4062,7 @@ function setupModelPromptConfigEventListeners(apiInfo, availableModels, modelPro
             });
         }
 
-        const applyRulesBtn = document.getElementById('apply-rules-btn');
+        const applyRulesBtn = safeElement('#apply-rules-btn');
         if (applyRulesBtn) {
             applyRulesBtn.addEventListener('click', async function() {
                 await applyModelPromptRules();
@@ -3973,28 +4070,33 @@ function setupModelPromptConfigEventListeners(apiInfo, availableModels, modelPro
         }
 
         // Export/Import buttons
-        const exportRulesBtn = document.getElementById('export-rules-btn');
+        const exportRulesBtn = safeElement('#export-rules-btn');
         if (exportRulesBtn) {
             exportRulesBtn.addEventListener('click', function() {
                 exportModelPromptRules();
             });
         }
 
-        const importRulesBtn = document.getElementById('import-rules-btn');
+        const importRulesBtn = safeElement('#import-rules-btn');
         if (importRulesBtn) {
             importRulesBtn.addEventListener('click', function() {
                 importModelPromptRules();
             });
         }
 
-        const exportTemplatesBtn = document.getElementById('export-templates-btn');
+        const exportTemplatesBtn = safeElement('#export-templates-btn');
         if (exportTemplatesBtn) {
-            exportTemplatesBtn.addEventListener('click', function() {
-                exportPromptTemplates();
+            exportTemplatesBtn.addEventListener('click', async function() {
+                try {
+                    await exportPromptTemplates();
+                } catch (error) {
+                    console.error('STCL: Error in export templates click handler:', error);
+                    updateStatusFeedback(`Export failed: ${error.message}`, 'error');
+                }
             });
         }
 
-        const importTemplatesBtn = document.getElementById('import-templates-btn');
+        const importTemplatesBtn = safeElement('#import-templates-btn');
         if (importTemplatesBtn) {
             importTemplatesBtn.addEventListener('click', function() {
                 importPromptTemplates();
@@ -4064,10 +4166,58 @@ async function saveModelPromptConfiguration() {
 
 // Helper functions for the configuration window
 
-// updateStatusFeedback moved to modelprompt.js
+/**
+ * Updates status feedback using toastr notifications
+ * @param {string} message - The message to display
+ * @param {string} type - The type of message ('success', 'error', 'warning', 'info')
+ */
+function updateStatusFeedback(message, type = 'info') {
+    if (!message || typeof message !== 'string') {
+        console.warn('STCL: Invalid message provided to updateStatusFeedback');
+        return;
+    }
+
+    const validTypes = ['success', 'error', 'warning', 'info'];
+    const messageType = validTypes.includes(type) ? type : 'info';
+
+    try {
+        // Check if notifications are enabled (with safe fallback)
+        let showNotifications = true;
+        try {
+            if (window.extensionSettings &&
+                window.extensionSettings[MODULE_NAME] &&
+                window.extensionSettings[MODULE_NAME].moduleSettings) {
+                showNotifications = window.extensionSettings[MODULE_NAME].moduleSettings.showOtherNotifications;
+            }
+        } catch (settingsError) {
+            // If we can't access settings, default to showing notifications
+            console.log('STCL: Could not access notification settings, defaulting to show');
+        }
+
+        if (!showNotifications) {
+            return;
+        }
+
+        // Only show success and error notifications to reduce noise
+        // Log info and warning messages instead of showing toasts
+        if (messageType === 'success' || messageType === 'error') {
+            if (typeof toastr === 'object' && toastr[messageType]) {
+                toastr[messageType](message, MODULE_NAME);
+            } else {
+                console.log(`STCL: ${messageType.toUpperCase()}: ${message}`);
+            }
+        } else {
+            // Log info/warning messages without showing toasts
+            console.log(`STCL: ${messageType.toUpperCase()}: ${message}`);
+        }
+    } catch (error) {
+        console.warn('STCL: Error showing status feedback:', error);
+        console.log(`STCL: ${messageType.toUpperCase()}: ${message}`);
+    }
+}
 
 async function validateFilterExpression(expression) {
-    const modelsInfoElement = document.getElementById('available-models-info');
+    const modelsInfoElement = safeElement('#available-models-info');
     if (!modelsInfoElement) return;
 
     if (!expression.trim()) {
@@ -4256,7 +4406,7 @@ async function showAddRuleDialog() {
         await addRulePopup.show();
 
         // Set up real-time validation for the filter expression
-        const filterInput = document.getElementById('rule-filter-expression');
+        const filterInput = safeElement('#rule-filter-expression');
         if (filterInput) {
             let ruleValidationTimeout;
             filterInput.addEventListener('input', function() {
@@ -4375,11 +4525,11 @@ async function deleteRule(ruleId) {
 // Helper function to save a new rule from the add rule dialog
 async function saveNewRule() {
     try {
-        const description = document.getElementById('rule-description')?.value?.trim();
-        const filterExpression = document.getElementById('rule-filter-expression')?.value?.trim();
-        const targetPreset = document.getElementById('rule-target-preset')?.value;
-        const priority = parseInt(document.getElementById('rule-priority')?.value) || 100;
-        const enabled = document.getElementById('rule-enabled')?.checked || false;
+        const description = safeElement('#rule-description')?.value?.trim();
+        const filterExpression = safeElement('#rule-filter-expression')?.value?.trim();
+        const targetPreset = safeElement('#rule-target-preset')?.value;
+        const priority = parseInt(safeElement('#rule-priority')?.value) || 100;
+        const enabled = safeElement('#rule-enabled')?.checked || false;
 
         // Validation
         if (!description) {
@@ -4452,8 +4602,8 @@ async function saveNewRule() {
 
                                 // Auto-scroll to the new rule after a brief delay
                                 setTimeout(() => {
-                                    const rulesContainer = document.getElementById('rules-container');
-                                    const newRuleElement = document.querySelector(`[data-rule-id="${newRule.ruleId}"]`);
+                                    const rulesContainer = safeElement('#rules-container');
+                                    const newRuleElement = safeElement(`[data-rule-id="${newRule.ruleId}"]`);
 
                                     if (rulesContainer && newRuleElement) {
                                         // Highlight the new rule with animation
@@ -4504,7 +4654,7 @@ async function saveNewRule() {
 
 // Helper function to validate filter expressions in rule dialogs with real-time testing
 async function validateRuleFilterExpression(expression) {
-    const validationElement = document.getElementById('rule-filter-validation');
+    const validationElement = safeElement('#rule-filter-validation');
     if (!validationElement) return;
 
     if (!expression.trim()) {
@@ -4729,7 +4879,7 @@ function importModelPromptRules() {
     }
 }
 
-function exportPromptTemplates() {
+async function exportPromptTemplates() {
     try {
         updateStatusFeedback('Exporting prompt templates...', 'info');
 
@@ -4755,9 +4905,76 @@ function exportPromptTemplates() {
             }
         }
 
-        // Fallback: export templates from extension settings
-        updateStatusFeedback('Templates export functionality requires template storage system', 'warning');
-        console.log('STCL: exportPromptTemplates called - fallback to settings');
+        // Fallback: export current prompt templates from SillyTavern's prompt manager
+        console.log('STCL: Exporting current prompt templates from ST prompt manager');
+
+        // First, let's check if the prompt manager is available and what it contains
+        const { getPromptManager } = await import('./templates.js');
+        const promptManager = getPromptManager();
+
+        console.log('STCL: Prompt manager available:', !!promptManager);
+        console.log('STCL: Prompt manager serviceSettings:', promptManager?.serviceSettings);
+        console.log('STCL: Available prompts:', promptManager?.serviceSettings?.prompts?.length);
+
+        // Get current prompt state from the prompt manager
+        const { ccGetPromptState } = await import('./chat-completion.js');
+        const currentPromptState = ccGetPromptState();
+
+        console.log('STCL: Current prompt state:', currentPromptState);
+
+        // Try direct access to prompt manager data as fallback
+        let promptData = currentPromptState;
+        if (!promptData || Object.keys(promptData).length === 0) {
+            console.log('STCL: ccGetPromptState returned empty, trying direct access...');
+
+            if (promptManager?.serviceSettings?.prompts) {
+                promptData = {
+                    prompts: promptManager.serviceSettings.prompts,
+                    prompt_order: promptManager.serviceSettings.prompt_order || [],
+                    version: promptManager.configuration?.version || 1,
+                    capturedAt: new Date().toISOString(),
+                    captureMethod: 'direct_access'
+                };
+                console.log('STCL: Direct access captured:', Object.keys(promptData));
+            }
+        }
+
+        // Create export data in the expected format
+        const exportData = {
+            version: '1.0',
+            timestamp: new Date().toISOString(),
+            exported_by: 'stcl-extension',
+            source: 'SillyTavern-CharacterLocks',
+            description: 'Exported Chat Completion prompt templates',
+            templates: promptData || {},
+            prompt_data: promptData,
+            debug_info: {
+                ccGetPromptStateWorked: !!(currentPromptState && Object.keys(currentPromptState).length > 0),
+                directAccessUsed: !currentPromptState || Object.keys(currentPromptState).length === 0,
+                promptManagerAvailable: !!promptManager,
+                totalPrompts: promptManager?.serviceSettings?.prompts?.length || 0
+            }
+        };
+
+        // Always export something, even if empty
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `stcl-prompt-templates-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        const promptCount = promptData?.prompts ? promptData.prompts.length : 0;
+        if (promptCount > 0) {
+            updateStatusFeedback(`Templates exported successfully (${promptCount} prompts)`, 'success');
+            console.log('STCL: Prompt templates exported from current ST state');
+        } else {
+            updateStatusFeedback('Templates exported (no active prompts found - check console)', 'warning');
+            console.log('STCL: Export completed but no prompt templates were found');
+        }
 
     } catch (error) {
         console.error('STCL: Error exporting templates:', error);
@@ -4825,7 +5042,7 @@ async function refreshAvailableModels() {
         const completionSource = apiInfo.completionSource;
 
         // Update the completion source display
-        const sourceElement = document.getElementById('current-completion-source');
+        const sourceElement = safeElement('#current-completion-source');
         if (sourceElement) {
             sourceElement.textContent = completionSource || 'Unknown';
         }
@@ -4834,7 +5051,7 @@ async function refreshAvailableModels() {
         const availableModels = getAvailableModels(completionSource);
 
         // Update the models info display
-        const modelsInfoElement = document.getElementById('available-models-info');
+        const modelsInfoElement = safeElement('#available-models-info');
         if (modelsInfoElement) {
             const content = availableModels.length > 10 ?
                 `<p>Too many models to display (${availableModels.length} total). <a href="#" id="show-models-popout">Click to view all</a></p>` :
@@ -4857,8 +5074,8 @@ async function refreshAvailableModels() {
 // Function to toggle between global and source-specific filter scope
 async function toggleFilterScope(isGlobal) {
     try {
-        const sourceInfoBlock = document.getElementById('source-specific-info');
-        const dualListBlock = document.getElementById('dual-list-management');
+        const sourceInfoBlock = safeElement('#source-specific-info');
+        const dualListBlock = safeElement('#dual-list-management');
 
         if (isGlobal) {
             // Hide source-specific UI elements
@@ -4888,7 +5105,7 @@ async function toggleFilterScope(isGlobal) {
 async function updateSourceSpecificDisplay() {
     try {
         const apiInfo = await getCurrentApiInfo();
-        const sourceNameElement = document.getElementById('source-specific-name');
+        const sourceNameElement = safeElement('#source-specific-name');
 
         if (sourceNameElement) {
             sourceNameElement.textContent = apiInfo.completionSource || 'Unknown';
@@ -4906,8 +5123,8 @@ async function updateDualListDisplay() {
         const completionSource = apiInfo.completionSource;
 
         // For now, show placeholder content - this will be enhanced when rule management is implemented
-        const sourceFiltersList = document.getElementById('source-filters-list');
-        const globalFiltersList = document.getElementById('global-filters-list');
+        const sourceFiltersList = safeElement('#source-filters-list');
+        const globalFiltersList = safeElement('#global-filters-list');
 
         if (sourceFiltersList) {
             sourceFiltersList.innerHTML = `
@@ -4992,7 +5209,7 @@ async function attachPromptSettingsListenersAsync(popupElement) {
 
     try {
         // Wait for Model-Prompt Links enable checkbox
-        const enableModelPromptLinksCheckbox = await waitForElement('#stcl_enable_model_prompt_links', popupElement, 2000);
+        const enableModelPromptLinksCheckbox = await utilsWaitForElement('#stcl_enable_model_prompt_links', popupElement, 2000);
         if (enableModelPromptLinksCheckbox && !enableModelPromptLinksCheckbox.dataset.stclListenerAdded) {
             enableModelPromptLinksCheckbox.dataset.stclListenerAdded = 'true';
             console.log('STCL: Setting up Model-Prompt Links checkbox listener');
@@ -5002,15 +5219,13 @@ async function attachPromptSettingsListenersAsync(popupElement) {
                 extension_settings.characterLocks.modelPromptLinks.enabled = e?.target?.checked;
                 saveSettingsDebounced();
 
-                if (typeof toastr !== 'undefined') {
-                    const status = e?.target?.checked ? 'enabled' : 'disabled';
-                    toastr.success(`Model-Prompt Links ${status}`, MODULE_NAME);
-                }
+                const status = e?.target?.checked ? 'enabled' : 'disabled';
+                toastr.success(`Model-Prompt Links ${status}`, MODULE_NAME);
             });
         }
 
         // Wait for Enable templates checkbox
-        const enableTemplatesCheckbox = await waitForElement('#stcl_enable_templates', popupElement, 2000);
+        const enableTemplatesCheckbox = await utilsWaitForElement('#stcl_enable_templates', popupElement, 2000);
         if (enableTemplatesCheckbox && !enableTemplatesCheckbox.dataset.stclListenerAdded) {
             enableTemplatesCheckbox.dataset.stclListenerAdded = 'true';
             console.log('STCL: Setting up enable templates checkbox listener');
@@ -5020,15 +5235,13 @@ async function attachPromptSettingsListenersAsync(popupElement) {
                 extension_settings.characterLocks.modelPromptLinks.enableTemplates = e?.target?.checked;
                 saveSettingsDebounced();
 
-                if (typeof toastr !== 'undefined') {
-                    const status = e?.target?.checked ? 'enabled' : 'disabled';
-                    toastr.success(`Template system ${status}`, MODULE_NAME);
-                }
+                const status = e?.target?.checked ? 'enabled' : 'disabled';
+                toastr.success(`Template system ${status}`, MODULE_NAME);
             });
         }
 
         // Wait for Auto-import checkbox
-        const autoImportCheckbox = await waitForElement('#stcl_auto_import', popupElement, 2000);
+        const autoImportCheckbox = await utilsWaitForElement('#stcl_auto_import', popupElement, 2000);
         if (autoImportCheckbox && !autoImportCheckbox.dataset.stclListenerAdded) {
             autoImportCheckbox.dataset.stclListenerAdded = 'true';
             console.log('STCL: Setting up auto-import checkbox listener');
@@ -5038,15 +5251,13 @@ async function attachPromptSettingsListenersAsync(popupElement) {
                 extension_settings.characterLocks.modelPromptLinks.autoImport = e?.target?.checked;
                 saveSettingsDebounced();
 
-                if (typeof toastr !== 'undefined') {
-                    const status = e?.target?.checked ? 'enabled' : 'disabled';
-                    toastr.success(`Auto-import ${status}`, MODULE_NAME);
-                }
+                const status = e?.target?.checked ? 'enabled' : 'disabled';
+                toastr.success(`Auto-import ${status}`, MODULE_NAME);
             });
         }
 
         // Wait for Auto-assign checkbox
-        const autoAssignCheckbox = await waitForElement('#stcl_auto_assign', popupElement, 2000);
+        const autoAssignCheckbox = await utilsWaitForElement('#stcl_auto_assign', popupElement, 2000);
         if (autoAssignCheckbox && !autoAssignCheckbox.dataset.stclListenerAdded) {
             autoAssignCheckbox.dataset.stclListenerAdded = 'true';
             console.log('STCL: Setting up auto-assign checkbox listener');
@@ -5056,15 +5267,13 @@ async function attachPromptSettingsListenersAsync(popupElement) {
                 extension_settings.characterLocks.modelPromptLinks.autoAssign = e?.target?.checked;
                 saveSettingsDebounced();
 
-                if (typeof toastr !== 'undefined') {
-                    const status = e?.target?.checked ? 'enabled' : 'disabled';
-                    toastr.success(`Auto-assign ${status}`, MODULE_NAME);
-                }
+                const status = e?.target?.checked ? 'enabled' : 'disabled';
+                toastr.success(`Auto-assign ${status}`, MODULE_NAME);
             });
         }
 
         // Wait for Configure Rules button
-        const configureRulesBtn = await waitForElement('#stcl_configure_rules_btn', popupElement, 2000);
+        const configureRulesBtn = await utilsWaitForElement('#stcl_configure_rules_btn', popupElement, 2000);
         if (configureRulesBtn && !configureRulesBtn.dataset.stclListenerAdded) {
             configureRulesBtn.dataset.stclListenerAdded = 'true';
             console.log('STCL: Setting up Configure Rules button listener');
@@ -5106,10 +5315,8 @@ function attachPromptSettingsListeners(popupElement) {
                 extension_settings.characterLocks.modelPromptLinks.enabled = e?.target?.checked;
                 saveSettingsDebounced();
 
-                if (typeof toastr !== 'undefined') {
-                    const status = e?.target?.checked ? 'enabled' : 'disabled';
-                    toastr.success(`Model-Prompt Links ${status}`, MODULE_NAME);
-                }
+                const status = e?.target?.checked ? 'enabled' : 'disabled';
+                toastr.success(`Model-Prompt Links ${status}`, MODULE_NAME);
             });
         }
 
@@ -5121,10 +5328,8 @@ function attachPromptSettingsListeners(popupElement) {
                 extension_settings.characterLocks.modelPromptLinks.enableTemplates = e?.target?.checked;
                 saveSettingsDebounced();
 
-                if (typeof toastr !== 'undefined') {
-                    const status = e?.target?.checked ? 'enabled' : 'disabled';
-                    toastr.success(`Template system ${status}`, MODULE_NAME);
-                }
+                const status = e?.target?.checked ? 'enabled' : 'disabled';
+                toastr.success(`Template system ${status}`, MODULE_NAME);
             });
         }
 
@@ -5136,10 +5341,8 @@ function attachPromptSettingsListeners(popupElement) {
                 extension_settings.characterLocks.modelPromptLinks.autoImport = e?.target?.checked;
                 saveSettingsDebounced();
 
-                if (typeof toastr !== 'undefined') {
-                    const status = e?.target?.checked ? 'enabled' : 'disabled';
-                    toastr.success(`Auto-import ${status}`, MODULE_NAME);
-                }
+                const status = e?.target?.checked ? 'enabled' : 'disabled';
+                toastr.success(`Auto-import ${status}`, MODULE_NAME);
             });
         }
 
@@ -5151,10 +5354,8 @@ function attachPromptSettingsListeners(popupElement) {
                 extension_settings.characterLocks.modelPromptLinks.autoAssign = e?.target?.checked;
                 saveSettingsDebounced();
 
-                if (typeof toastr !== 'undefined') {
-                    const status = e?.target?.checked ? 'enabled' : 'disabled';
-                    toastr.success(`Auto-assign ${status}`, MODULE_NAME);
-                }
+                const status = e?.target?.checked ? 'enabled' : 'disabled';
+                toastr.success(`Auto-assign ${status}`, MODULE_NAME);
             });
         }
 
@@ -5201,7 +5402,7 @@ async function showRulesConfigurationPopup() {
 async function saveRulesConfiguration() {
     try {
         const extensionSettings = storageAdapter.getExtensionSettings();
-        const rulesContainer = document.querySelector('#rules-container');
+        const rulesContainer = safeElement('#rules-container');
 
         if (!rulesContainer) {
             console.error('STCL: Rules container not found');
@@ -5339,7 +5540,7 @@ function addSettingsButtons() {
 
 
 function addPopupWrapStyle() {
-    if (document.getElementById('stcl-popup-fix')) return;
+    if (safeElement('#stcl-popup-fix')) return;
 
     const css = `
         .popup-controls {
@@ -5444,13 +5645,7 @@ function setupEventListeners() {
 
             // Auto-save events removed - all saves are now manual through the UI
 
-            // Register model change event handler
-            if (event_types.MODEL_CHANGED) {
-                console.log('STCL: Registering MODEL_CHANGED event:', event_types.MODEL_CHANGED);
-                registerSTCLEventHandler(event_types.MODEL_CHANGED, onModelChanged, 'model change');
-            } else {
-                console.warn('STCL: MODEL_CHANGED event not available in this SillyTavern version');
-            }
+            // Model change detection via jQuery selectors (reliable across ST versions)
 
             // Also listen for OpenAI model selection changes (fallback)
             const modelChangeHandler = lodash.debounce(onModelChanged, 500);
