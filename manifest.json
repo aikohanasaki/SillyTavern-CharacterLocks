@@ -1,12 +1,12 @@
 {
-    "display_name": "Model Temp Locks",
-    "loading_order": 99,
+    "display_name": "SillyTavern-CharacterLocks",
+    "loading_order": 19,
     "requires": [],
     "optional": [],
     "js": "index.js",
     "author": "aikohanasaki",
-    "version": "3.1.0",
-    "homePage": "https://github.com/aikohanasaki/SillyTavern-ModelTempLocks",
+    "version": "5.0.0",
+    "homePage": "https://github.com/aikohanasaki/SillyTavern-CharacterLocks",
     "auto_update": true,
-    "description": "Remembers model and temperature settings for each character and chat, with automatic save and restore. Customize chat/character prioritization, autosave, notifications. Version 3.1.0 features enhanced reliability, compatibility fixes, and robust error handling for seamless operation."
+    "description": "Remembers preset and connection profile (API) settings for each character and chat, with automatic save and restore. Features model-prompt links with Boolean logic for automatic preset/prompt switching based on model names. Simplified approach focusing on presets (which contain all generation settings) rather than individual model/temperature controls. Features Aikobots integration with preset extension field support for portable settings."
 }

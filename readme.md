@@ -1,13 +1,8 @@
-# 🌡️ Model Temp Locks (STMTL Extension for SillyTavern)
+# 📌 Character Locks (STCL Extension for SillyTavern)
 
-A SillyTavern extension that automatically remembers and applies your preferred model and temperature settings for different characters, chats, and group conversations. No more constantly tweaking settings - just set them once and let the extension handle the rest.
+A SillyTavern extension that automatically remembers and applies your preferred prompt, preset, and connection profiles for different characters, chats, and group conversations. No more constantly tweaking settings - just set them once and let the extension handle the rest.
 
-✨ **Version 3.1.0** brings enhanced reliability with memory leak prevention, performance optimizations, robust error handling, and improved SillyTavern compatibility.
-
-## ⚠️ Requirements
-
-- **Chat Completion API only**: Works with OpenAI API-compatible chat completion endpoints
-- **What it saves**: Model selection and temperature only (preset switching WIP)
+✨ **Version 4.0.0** is a complete re-engineer to lock connection profiles, presets, and prompts. 
 
 ## 🚀 Features
 
@@ -22,57 +17,55 @@ A SillyTavern extension that automatically remembers and applies your preferred 
 - **Group Chats**: Choose whether group-wide settings or chat-specific settings take priority
 - **Individual Characters in Groups**: Optionally give highest priority to individual character settings within groups
 
-### Auto-Save Options
-- Auto-save when you send messages or generate responses
-- Separate auto-save controls for character/group settings and chat settings
-- Manual save options always available
+### Manual Save Options
+- Use the save buttons to explicitly save your settings when you want them remembered
+- All saves are now manual to give you complete control
 
 ### Notification Control
-- Toggle auto-save notifications
+- Toggle save notifications to get feedback when settings are saved
 - Toggle other notifications (API status, settings applied, etc.)
 
 ## 📖 How to Use
 
 ### Opening the Extension
-Click **"Model/Temp Settings"** in your Extensions menu to open the settings panel.
+Click **📌 Character Locks** in your Extensions menu to open the settings panel.
 
 ### Setting Up Your Preferences
 
 The settings panel adapts based on whether you're in a single chat or group chat:
 
 **Single Character Chats:**
-- ✅ **Remember per character** - Each character gets their own model/temp preferences
+- ✅ **Remember per character** - Each character gets their own preset/connection preferences
 - ✅ **Remember per chat** - Individual conversations remember their settings
 - ✅ **Prefer character settings over chat** - Character preferences override chat preferences
-- ✅ **Auto-save character settings** - Automatically save when chatting with characters
-- ✅ **Auto-save chat settings** - Automatically save chat-specific preferences
+- ✅ **Save character settings** - Use the save buttons to store character preferences
+- ✅ **Save chat settings** - Use the save buttons to store chat-specific preferences
 
 **Group Chats:**
 - ✅ **Remember per group** - Each group chat gets its own default settings
 - ✅ **Remember per chat** - Individual group conversations remember their settings
 - ✅ **Prefer group settings over chat** - Group defaults override chat-specific settings
 - ✅ **Prefer individual character settings** - Remember settings for each character in groups (highest priority)
-- ✅ **Auto-save group settings** - Automatically save group-wide preferences
-- ✅ **Auto-save chat settings** - Automatically save chat-specific preferences
+- ✅ **Save group settings** - Use the save buttons to store group-wide preferences
+- ✅ **Save chat settings** - Use the save buttons to store chat-specific preferences
 
 The group chat interface displays all group members with their current settings in a responsive layout. To manage individual character settings, visit their character cards directly.
 
 **Notification Options:**
-- ✅ **Show auto-save notifications** - Get notified when settings are auto-saved
+- ✅ **Show save notifications** - Get notified when settings are manually saved
 - ✅ **Show other notifications** - Get notified about API status, settings applied, etc.
 
 ### Saving Settings
 
 **Manual Saving (Recommended for initial setup):**
-- **Set Character** / **Set Group** - Save current model/temp for this character or group
-- **Set Chat** - Save current model/temp for this specific conversation
+- **Set Character** / **Set Group** - Save current preset/connection for this character or group
+- **Set Chat** - Save current preset/connection for this specific conversation
 - **Set Both** / **Set All** - Save to both character/group and chat
-
 *For individual character settings in group chats, visit each character's card directly.*
 
-**Auto-Saving (Recommended for ongoing use):**
-- Enable auto-save options and your settings will be remembered automatically as you chat
-- Settings are saved when you send messages or generate responses
+**Manual Saving (All saves are manual):**
+- All saves are now manual to give you complete control over when settings are saved
+- Use the save buttons whenever you want to remember your current configuration
 
 ### Managing Saved Settings
 
@@ -93,13 +86,13 @@ The panel shows you what's currently saved for:
 ## 🎯 Common Use Cases
 
 ### Character-Focused Setup
-1. Enable "Remember per character" and "Auto-save character settings"
-2. Set up each character with their preferred model and temperature
+1. Enable "Remember per character"
+2. Set up each character with their preferred preset and connection using the save buttons
 3. The extension automatically switches settings when you change characters
 
 ### Chat-Focused Setup
-1. Enable "Remember per chat" and "Auto-save chat settings"
-2. Each conversation develops its own preferred settings over time
+1. Enable "Remember per chat"
+2. Save your preferred settings for each conversation using the save buttons
 3. Perfect for when you want different vibes for different conversations
 
 ### Group Chat Management
@@ -119,7 +112,7 @@ The panel shows you what's currently saved for:
 **Settings Storage**:
 - Character and group settings are stored in extension settings
 - Chat settings are stored in chat metadata
-- All settings include model, temperature, completion source, and timestamp
+- All settings include preset selection, completion source, and timestamp
 
 **Group Chat Detection**: Automatically detects group chats and shows appropriate options.
 
