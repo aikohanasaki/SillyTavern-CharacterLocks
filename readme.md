@@ -4,6 +4,8 @@ A SillyTavern extension that automatically remembers and applies your preferred 
 
 ✨ **Version 4.0.0** is completely redesigned from model/temperature locks to preset and connection profile locks.
 
+**Work In Progress**: currently working on adding chat completion prompt management that is separate from presets
+
 ## ⚠️ Requirements
 
 - **Connection Manager Extension**: Requires the Connection Manager extension to be enabled
