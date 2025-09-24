@@ -5,8 +5,8 @@
     "optional": [],
     "js": "index.js",
     "author": "aikohanasaki",
-    "version": "3.1.0",
+    "version": "4.0.0",
     "homePage": "https://github.com/aikohanasaki/SillyTavern-CharacterLocks",
     "auto_update": true,
-    "description": "Remembers connection profiles and presets for each character and chat, with automatic save and restore. Customize chat/character prioritization, auto-apply settings, notifications. Version 3.1.0 features enhanced reliability, compatibility fixes, and robust error handling for seamless operation."
+    "description": "Complete preset and profile management system for SillyTavern. Automatically remembers and applies connection profiles and presets for each character, chat, and group conversation. Version 4.0.0 switches from model/temperature locks to preset and connection profile locks."
 }

@@ -2,12 +2,13 @@
 
 A SillyTavern extension that automatically remembers and applies your preferred connection profile and preset settings for different characters, chats, and group conversations. No more constantly tweaking settings - just set them once and let the extension handle the rest.
 
-✨ **Version 3.1.0** brings enhanced reliability with memory leak prevention, performance optimizations, robust error handling, and improved SillyTavern compatibility.
+✨ **Version 4.0.0** is completely redesigned from model/temperature locks to preset and connection profile locks.
 
 ## ⚠️ Requirements
 
 - **Connection Manager Extension**: Requires the Connection Manager extension to be enabled
-- **What it saves**: Connection profile and preset settings
+- **What it saves**: Connection profiles and presets are saved per chat, character, and/or group chat. 
+- **Breaking Change**: Old version (STMTL) profiles are no longer useful and will be converted automatically when you open a the chat. 
 
 ## 🚀 Features
 
@@ -123,13 +124,13 @@ The panel shows you what's currently saved for:
 
 **Group Chat Detection**: Automatically detects group chats and shows appropriate options.
 
-**Enhanced Reliability (v3.1.0)**:
-- **Memory Management**: Bounded queues prevent memory leaks and ensure stable operation
-- **Error Recovery**: Comprehensive error handling with graceful degradation when features are unavailable
-- **Performance Optimization**: Eliminated busy-waiting and CPU-intensive operations for smoother performance
-- **Event System**: Robust event handling with proper cleanup and SillyTavern compatibility validation
-- **Timeout Protection**: 5-second timeout protection prevents deadlocks during context operations
-- **Resource Cleanup**: Automatic cleanup of timers, promises, and event listeners on extension restart
+**Major Enhancements (v4.0.0)**:
+- **Preset Integration**: Full integration with SillyTavern's preset management system
+- **Profile Management**: Complete connection profile switching and management capabilities
+- **Streamlined Operations**: Optimized performance with reduced resource usage and improved response times
+- **Enhanced Reliability**: Robust error handling with graceful fallbacks and advanced recovery mechanisms
+- **Code Quality**: Major refactoring with over 2,300 lines of improvements for better maintainability
+- **Improved Compatibility**: Better integration with various SillyTavern versions and configurations
 
 ## 📋 Version History
 

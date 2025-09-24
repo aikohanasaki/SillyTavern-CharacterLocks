@@ -1,13 +1,28 @@
 # Changelog
 
-All notable changes to the SillyTavern Model Temperature Locks extension will be documented in this file.
-
 ← [Back to README](README.md)
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [4.0.0] - 2025-01-24
 
-## [Unreleased]
+### 🚨 BREAKING CHANGES
+- **Complete Architectural Redesign**: Evolved from model/temperature locks to comprehensive preset and profile management system
+- **New Dependency**: Now requires Connection Manager extension to be enabled for full functionality
+- **Changed Scope**: Extension now manages complete connection profiles and presets instead of just model/temperature settings
+- **Updated Storage**: Settings storage mechanism updated to support new preset/profile architecture
+
+### Added
+- **Preset Management Integration**: Full integration with SillyTavern's preset management system
+- **Connection Profile Switching**: Automatic switching and saving of connection profiles per character/chat
+- **Enhanced Group Chat Support**: Individual character settings management within group conversations
+- **Improved Auto-Save System**: Comprehensive auto-save functionality for both presets and profiles
+- **Advanced Error Recovery**: Robust error handling with graceful fallbacks and recovery mechanisms
+- **Streamlined Operations**: Optimized performance and reduced resource usage
+
+### Changed
+- **Core Functionality**: Transitioned from temperature/model locks to complete preset and profile management
+- **User Interface**: Updated UI components to reflect new preset/profile management capabilities
+- **Settings Architecture**: Redesigned settings storage and retrieval system for enhanced reliability
+- **Extension Integration**: Improved integration with SillyTavern's native systems and APIs
 
 ## [3.1.0] - 2025-01-16
 
@@ -108,4 +123,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-*This changelog is automatically maintained. For more detailed information about changes, please refer to the git commit history.*
+*For more detailed information about changes, please refer to the git commit history.*
