@@ -1,13 +1,13 @@
-# 🌡️ Model Temp Locks (STMTL Extension for SillyTavern)
+# 📌 Character Locks (STCL Extension for SillyTavern)
 
-A SillyTavern extension that automatically remembers and applies your preferred model and temperature settings for different characters, chats, and group conversations. No more constantly tweaking settings - just set them once and let the extension handle the rest.
+A SillyTavern extension that automatically remembers and applies your preferred connection profile and preset settings for different characters, chats, and group conversations. No more constantly tweaking settings - just set them once and let the extension handle the rest.
 
 ✨ **Version 3.1.0** brings enhanced reliability with memory leak prevention, performance optimizations, robust error handling, and improved SillyTavern compatibility.
 
 ## ⚠️ Requirements
 
-- **Chat Completion API only**: Works with OpenAI API-compatible chat completion endpoints
-- **What it saves**: Model selection and temperature only (preset switching WIP)
+- **Connection Manager Extension**: Requires the Connection Manager extension to be enabled
+- **What it saves**: Connection profile and preset settings
 
 ## 🚀 Features
 
@@ -64,8 +64,8 @@ The group chat interface displays all group members with their current settings 
 ### Saving Settings
 
 **Manual Saving (Recommended for initial setup):**
-- **Set Character** / **Set Group** - Save current model/temp for this character or group
-- **Set Chat** - Save current model/temp for this specific conversation
+- **Set Character** / **Set Group** - Save current connection profile/preset for this character or group
+- **Set Chat** - Save current connection profile/preset for this specific conversation
 - **Set Both** / **Set All** - Save to both character/group and chat
 
 *For individual character settings in group chats, visit each character's card directly.*
@@ -94,7 +94,7 @@ The panel shows you what's currently saved for:
 
 ### Character-Focused Setup
 1. Enable "Remember per character" and "Auto-save character settings"
-2. Set up each character with their preferred model and temperature
+2. Set up each character with their preferred connection profile and preset
 3. The extension automatically switches settings when you change characters
 
 ### Chat-Focused Setup
@@ -114,12 +114,12 @@ The panel shows you what's currently saved for:
 
 ## 🔧 Technical Details
 
-**API Compatibility Check**: The extension automatically detects if you're using a compatible API and shows status in the settings panel.
+**Connection Manager Integration**: The extension integrates with SillyTavern's Connection Manager for seamless profile management.
 
 **Settings Storage**:
 - Character and group settings are stored in extension settings
 - Chat settings are stored in chat metadata
-- All settings include model, temperature, completion source, and timestamp
+- All settings include connection profile, preset, and timestamp
 
 **Group Chat Detection**: Automatically detects group chats and shows appropriate options.
 
