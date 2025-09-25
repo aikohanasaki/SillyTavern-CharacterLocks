@@ -2,7 +2,7 @@
 
 ← [Back to README](README.md)
 
-## [4.0.0] - 2025-01-24
+## [4.0.0] - 2025-09-24
 
 ### 🚨 BREAKING CHANGES
 - **Complete Architectural Redesign**: Evolved from model/temperature locks to comprehensive preset and profile management system
@@ -14,9 +14,6 @@
 - **Preset Management Integration**: Full integration with SillyTavern's preset management system
 - **Connection Profile Switching**: Automatic switching and saving of connection profiles per character/chat
 - **Enhanced Group Chat Support**: Individual character settings management within group conversations
-- **Improved Auto-Save System**: Comprehensive auto-save functionality for both presets and profiles
-- **Advanced Error Recovery**: Robust error handling with graceful fallbacks and recovery mechanisms
-- **Streamlined Operations**: Optimized performance and reduced resource usage
 
 ### Changed
 - **Core Functionality**: Transitioned from temperature/model locks to complete preset and profile management
@@ -24,7 +21,7 @@
 - **Settings Architecture**: Redesigned settings storage and retrieval system for enhanced reliability
 - **Extension Integration**: Improved integration with SillyTavern's native systems and APIs
 
-## [3.1.0] - 2025-01-16
+## [3.1.0] - 2025-09-16
 
 ### Added
 - **Enhanced Event Management System**: Comprehensive event handler registration and cleanup system with proper resource management
@@ -61,7 +58,7 @@
 - **Resource Cleanup**: Proper cleanup of timers, promises, and event listeners to prevent memory leaks
 - **Graceful Degradation**: Extension continues working even when some SillyTavern features are unavailable
 
-## [3.0.6] - 2025-01-15
+## [3.0.6] - 2025-09-15
 
 ### Added
 - **Enhanced Group Chat UI**: Complete redesign of group chat interface to display ALL group members simultaneously

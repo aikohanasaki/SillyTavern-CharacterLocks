@@ -6,6 +6,8 @@ A SillyTavern extension that automatically remembers and applies your preferred 
 
 **Work In Progress**: currently working on adding chat completion prompt management that is separate from presets
 
+📋 **[View Changelog](changelog.md)** for detailed version history and updates.
+
 ## ⚠️ Requirements
 
 - **Connection Manager Extension**: Requires the Connection Manager extension to be enabled
