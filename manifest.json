@@ -6,6 +6,7 @@
     "js": "index.js",
     "author": "aikohanasaki",
     "version": "4.0.0",
+    "license": "AGPL-3.0",
     "homePage": "https://github.com/aikohanasaki/SillyTavern-CharacterLocks",
     "auto_update": true,
     "description": "Complete preset and profile management system for SillyTavern. Automatically remembers and applies connection profiles and presets for each character, chat, and group conversation. Version 4.0.0 switches from model/temperature locks to preset and connection profile locks."

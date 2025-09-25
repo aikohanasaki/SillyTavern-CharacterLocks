@@ -520,22 +520,11 @@ SELECTORS.tcSysprompt = '#sysprompt_select'   // System Prompt
 
 ## Extension Behavior Notes
 
-### Auto-Save Considerations
-- Context Template and Instruct Preset should only be saved if their respective modes are enabled
-- System Prompt should only be saved if sysprompt is enabled
-- For Chat Completion, need to determine what state of the Prompt Manager can/should be saved
-
 ### Priority System
 The extension already has a priority system for character vs chat settings. This should apply to all three Ps:
 - Character settings can include preferred Profile, Preset, and Prompts
 - Chat settings can override with different Profile, Preset, and Prompts
 - User preference determines which takes precedence
-
-### Migration Path
-When updating the extension:
-1. Existing saved `preset` and `completionSource` remain unchanged
-2. Add new fields for prompt configurations based on API type
-3. Provide sensible defaults for missing prompt data
 
 ---
 
