@@ -2,6 +2,8 @@
 
 A SillyTavern extension that automatically remembers and applies your preferred connection profile and preset settings for different characters, chats, and group conversations. No more constantly tweaking settings - just set them once and let the extension handle the rest.
 
+![STCL Settings](https://github.com/aikohanasaki/imagehost/blob/main/STCL.png)
+
 ✨ **Version 4.0.0** is completely redesigned from model/temperature locks to preset and connection profile locks.
 
 **Work In Progress**: currently working on adding chat completion prompt management that is separate from presets
@@ -10,7 +12,7 @@ A SillyTavern extension that automatically remembers and applies your preferred 
 
 ## ⚠️ Requirements
 
-- **Connection Manager Extension**: Requires the Connection Manager extension to be enabled
+- **Connection Manager Extension**: Requires the Connection Manager extension to be enabled (official ST included extension)
 - **What it saves**: Connection profiles and presets are saved per chat, character, and/or group chat. 
 - **Breaking Change**: Old version (STMTL) profiles are no longer useful and will be converted automatically when you open a the chat. 
 
