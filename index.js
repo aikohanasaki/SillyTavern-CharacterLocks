@@ -92,7 +92,8 @@ const DEFAULT_SETTINGS = {
         autoSaveChat: false,
         autoSaveGroup: false,
         showAutoSaveNotifications: false,
-        showOtherNotifications: false
+        showOtherNotifications: false,
+        applyBehavior: 'always'
     },
     characterSettings: {},
     groupSettings: {},
@@ -684,6 +685,7 @@ class SettingsManager {
         this.chatContext = new ChatContext();
         this.currentSettings = this._getEmptySettings();
         this._queueProcessingTimeout = null;
+        this._confirming = false;
     }
 
     _getEmptySettings() {
@@ -804,13 +806,27 @@ class SettingsManager {
             await this.loadCurrentSettings();
 
             // Apply settings automatically when switching contexts with proper flag management
+            const extensionSettings = this.storage.getExtensionSettings();
+            const modeRaw = extensionSettings?.moduleSettings?.applyBehavior;
+            const mode = (modeRaw === 'always' || modeRaw === 'ask' || modeRaw === 'never') ? modeRaw : 'always';
+
             const shouldApplySettings = await this._shouldApplySettingsAutomatically();
-            console.log('STMTL: shouldApplySettings:', shouldApplySettings, 'isApplyingSettings:', isApplyingSettings);
-            if (shouldApplySettings && !isApplyingSettings) {
-                console.log('STMTL: Applying settings automatically on context change');
-                await this.applySettings();
+            console.log('STMTL: shouldApplySettings:', shouldApplySettings, 'mode:', mode, 'isApplyingSettings:', isApplyingSettings);
+
+            if (!shouldApplySettings) {
+                console.log('STMTL: Skipping auto application - memory disabled');
+            } else if (!isApplyingSettings) {
+                if (mode === 'always') {
+                    console.log('STMTL: Applying settings automatically (mode=always)');
+                    await this.applySettings();
+                } else if (mode === 'ask') {
+                    console.log('STMTL: Prompting before applying settings (mode=ask)');
+                    await this._confirmAndApply();
+                } else {
+                    console.log('STMTL: Skipping automatic settings application (mode=never)');
+                }
             } else {
-                console.log('STMTL: Skipping automatic settings application - memory disabled or currently applying');
+                console.log('STMTL: Skipping automatic settings application - currently applying');
             }
         } catch (error) {
             console.error('STMTL: Error processing context change queue:', error);
@@ -836,6 +852,58 @@ class SettingsManager {
             this._queueProcessingTimeout = null;
             this._processContextChangeQueue();
         }, 100); // 100ms debounce
+    }
+
+    async _confirmAndApply() {
+        if (this._confirming) {
+            console.log('STMTL: Confirmation already in progress, skipping');
+            return false;
+        }
+
+        try {
+            this._confirming = true;
+
+            const resolved = await this.getSettingsToApply();
+            if (!resolved || !resolved.settings) {
+                console.log('STMTL: No settings available to apply in ask mode');
+                return false;
+            }
+
+            let summary = '';
+            try {
+                summary = formatSettingsInfo(resolved.settings);
+            } catch (e) {
+                summary = 'Model/Temp/Source summary unavailable.';
+            }
+
+            const msg = `Apply saved ${resolved.source} settings?\n\n${summary}`;
+            let confirmAvailable = false;
+            let proceed = false;
+
+            try {
+                if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+                    confirmAvailable = true;
+                    proceed = window.confirm(msg);
+                }
+            } catch (e) {
+                // ignore
+            }
+
+            if (!confirmAvailable) {
+                console.warn('STMTL: window.confirm not available; skipping auto-apply in ask mode');
+                return false;
+            }
+
+            if (proceed) {
+                console.log('STMTL: User confirmed, applying settings');
+                return await this.applySettings();
+            } else {
+                console.log('STMTL: User declined applying settings');
+                return false;
+            }
+        } finally {
+            this._confirming = false;
+        }
     }
 
     async applySettings() {
@@ -1373,6 +1441,24 @@ const popupTemplate = Handlebars.compile(`
     </div>
 
     <div class="completion_prompt_manager_popup_entry_form_control">
+        <label><strong>When switching chats:</strong></label>
+        <div class="flex-container flexGap10">
+            <label class="checkbox_label">
+                <input type="radio" name="stmtl-apply-behavior" id="stmtl-apply-always" {{#if isApplyAlways}}checked{{/if}}>
+                <span>Always apply</span>
+            </label>
+            <label class="checkbox_label">
+                <input type="radio" name="stmtl-apply-behavior" id="stmtl-apply-ask" {{#if isApplyAsk}}checked{{/if}}>
+                <span>Ask</span>
+            </label>
+            <label class="checkbox_label">
+                <input type="radio" name="stmtl-apply-behavior" id="stmtl-apply-never" {{#if isApplyNever}}checked{{/if}}>
+                <span>Never</span>
+            </label>
+        </div>
+    </div>
+
+    <div class="completion_prompt_manager_popup_entry_form_control">
         {{#each checkboxes}}
         <label class="checkbox_label">
             <input type="checkbox" id="{{id}}" {{#if checked}}checked{{/if}} {{#unless ../isExtensionEnabled}}{{#if requiresApi}}disabled{{/if}}{{/unless}}>
@@ -1528,6 +1614,14 @@ async function getPopupContent() {
         })) : [],
         checkboxes
     };
+
+    // Apply behavior flags
+    const applyBehavior = (extensionSettings.moduleSettings.applyBehavior === 'ask' || extensionSettings.moduleSettings.applyBehavior === 'never' || extensionSettings.moduleSettings.applyBehavior === 'always')
+        ? extensionSettings.moduleSettings.applyBehavior
+        : 'always';
+    templateData.isApplyAlways = applyBehavior === 'always';
+    templateData.isApplyAsk = applyBehavior === 'ask';
+    templateData.isApplyNever = applyBehavior === 'never';
 
     return DOMPurify.sanitize(popupTemplate(templateData));
 }
@@ -1755,8 +1849,30 @@ async function handlePopupClose(popup) {
         const oldValues = lodash.pick(extensionSettings.moduleSettings, Object.values(checkboxMappings));
         const changed = !lodash.isEqual(oldValues, newValuesMapped);
 
-        if (changed) {
-            lodash.merge(extensionSettings.moduleSettings, newValuesMapped);
+        // Read applyBehavior radio selection
+        let behaviorChanged = false;
+        try {
+            const checked = popupElement.querySelector('input[name="stmtl-apply-behavior"]:checked');
+            const selectedId = checked ? checked.id : null;
+            let newBehavior = extensionSettings.moduleSettings.applyBehavior || 'always';
+
+            if (selectedId === 'stmtl-apply-always') newBehavior = 'always';
+            else if (selectedId === 'stmtl-apply-ask') newBehavior = 'ask';
+            else if (selectedId === 'stmtl-apply-never') newBehavior = 'never';
+
+            const oldBehavior = extensionSettings.moduleSettings.applyBehavior;
+            if (newBehavior !== oldBehavior) {
+                extensionSettings.moduleSettings.applyBehavior = newBehavior;
+                behaviorChanged = true;
+            }
+        } catch (e) {
+            console.warn('STMTL: Could not read apply behavior selection:', e);
+        }
+
+        if (changed || behaviorChanged) {
+            if (changed) {
+                lodash.merge(extensionSettings.moduleSettings, newValuesMapped);
+            }
             storageAdapter.saveExtensionSettings();
         }
     } catch (error) {
@@ -2068,6 +2184,11 @@ function migrateOldData() {
     }
     if (!extensionSettings.groupSettings) {
         extensionSettings.groupSettings = {};
+    }
+
+    // Add missing apply behavior setting
+    if (!extensionSettings.moduleSettings.hasOwnProperty('applyBehavior')) {
+        extensionSettings.moduleSettings.applyBehavior = 'always';
     }
 
     extensionSettings.migrationVersion = 6;
