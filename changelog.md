@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0] - 2025-10-23
+
+### Added
+- Top K sampling support with UI controls (#top_k_openai, #top_k_counter_openai)
+- Persistence for Top P and Top K across character, chat, and group settings
+- Debounced auto-save triggers for Top K changes
+
+### Changed
+- UI labels and popup headers updated to include Top P and Top K
+
+### Technical
+- Selectors map and API selector helper expose Top K controls
+- Settings serialization includes top_k with validation (integer ≥ 0, default 0)
+
 ## [3.1.0] - 2025-01-16
 
 ### Added

@@ -5,8 +5,8 @@
     "optional": [],
     "js": "index.js",
     "author": "aikohanasaki",
-    "version": "3.1.0",
+    "version": "3.2.0",
     "homePage": "https://github.com/aikohanasaki/SillyTavern-ModelTempLocks",
     "auto_update": true,
-    "description": "Remembers model and temperature settings for each character and chat, with automatic save and restore. Customize chat/character prioritization, autosave, notifications. Version 3.1.0 features enhanced reliability, compatibility fixes, and robust error handling for seamless operation."
+    "description": "Remembers model, temperature, Top P and Top K settings for each character and chat, with automatic save and restore. Customize chat/character prioritization, autosave, notifications. Version 3.2.0 adds Top P/Top K controls and persistence, plus enhanced reliability, compatibility fixes, and robust error handling for seamless operation."
 }

@@ -2,12 +2,12 @@
 
 A SillyTavern extension that automatically remembers and applies your preferred model and temperature settings for different characters, chats, and group conversations. No more constantly tweaking settings - just set them once and let the extension handle the rest.
 
-✨ **Version 3.1.0** brings enhanced reliability with memory leak prevention, performance optimizations, robust error handling, and improved SillyTavern compatibility.
+✨ **Version 3.2.0** adds Top P and Top K controls with persistence, plus enhanced reliability with memory leak prevention, performance optimizations, robust error handling, and improved SillyTavern compatibility.
 
 ## ⚠️ Requirements
 
 - **Chat Completion API only**: Works with OpenAI API-compatible chat completion endpoints
-- **What it saves**: Model selection and temperature only (preset switching WIP)
+- **What it saves**: Model selection, temperature, Top P, and Top K
 
 ## 🚀 Features
 
@@ -34,7 +34,7 @@ A SillyTavern extension that automatically remembers and applies your preferred 
 ## 📖 How to Use
 
 ### Opening the Extension
-Click **"Model/Temp Settings"** in your Extensions menu to open the settings panel.
+Click **"Model/Temp/Top P/Top K Settings"** in your Extensions menu to open the settings panel.
 
 ### Setting Up Your Preferences
 
@@ -64,9 +64,9 @@ The group chat interface displays all group members with their current settings 
 ### Saving Settings
 
 **Manual Saving (Recommended for initial setup):**
-- **Set Character** / **Set Group** - Save current model/temp for this character or group
-- **Set Chat** - Save current model/temp for this specific conversation
-- **Set Both** / **Set All** - Save to both character/group and chat
+- **Set Character** / **Set Group** - Save current model/temp/top_p/top_k for this character or group
+- **Set Chat** - Save current model/temp/top_p/top_k for this specific conversation
+- **Set Both** / **Set All** - Save current model/temp/top_p/top_k to both character/group and chat
 
 *For individual character settings in group chats, visit each character's card directly.*
 
@@ -119,7 +119,7 @@ The panel shows you what's currently saved for:
 **Settings Storage**:
 - Character and group settings are stored in extension settings
 - Chat settings are stored in chat metadata
-- All settings include model, temperature, completion source, and timestamp
+- All settings include model, temperature, top_p, top_k, completion source, and timestamp
 
 **Group Chat Detection**: Automatically detects group chats and shows appropriate options.
 

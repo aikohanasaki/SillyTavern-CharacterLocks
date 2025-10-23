@@ -52,7 +52,11 @@ const SELECTORS = {
     modelAzureOpenai: '#model_azure_openai_select',
     modelElectronhub: '#model_electronhub_select',
     tempOpenai: '#temp_openai',
-    tempCounterOpenai: '#temp_counter_openai'
+    tempCounterOpenai: '#temp_counter_openai',
+    topPOpenai: '#top_p_openai',
+    topPCounterOpenai: '#top_p_counter_openai',
+    topKOpenai: '#top_k_openai',
+    topKCounterOpenai: '#top_k_counter_openai'
 };
 
 
@@ -873,7 +877,7 @@ class SettingsManager {
             try {
                 summary = formatSettingsInfo(resolved.settings);
             } catch (e) {
-                summary = 'Model/Temp/Source summary unavailable.';
+                summary = 'Model/Temp/Top P/Top K/Source summary unavailable.';
             }
 
             const msg = `Apply saved ${resolved.source} settings?\n\n${summary}`;
@@ -989,6 +993,30 @@ class SettingsManager {
             }
             if (tempCounterSelector.length) {
                 tempCounterSelector.val(settings.temperature).trigger('change');
+            }
+        }
+
+        // Apply top_p (nucleus sampling) setting
+        if (lodash.isNumber(settings.top_p)) {
+            const topPSelector = $(selectors.topP);
+            const topPCounterSelector = $(selectors.topPCounter);
+            if (topPSelector.length) {
+                topPSelector.val(settings.top_p).trigger('input').trigger('change');
+            }
+            if (topPCounterSelector.length) {
+                topPCounterSelector.val(settings.top_p).trigger('change');
+            }
+        }
+
+        // Apply top_k (token sampling) setting
+        if (lodash.isNumber(settings.top_k)) {
+            const topKSelector = $(selectors.topK);
+            const topKCounterSelector = $(selectors.topKCounter);
+            if (topKSelector.length) {
+                topKSelector.val(settings.top_k).trigger('input').trigger('change');
+            }
+            if (topKCounterSelector.length) {
+                topKCounterSelector.val(settings.top_k).trigger('change');
             }
         }
 
@@ -1130,6 +1158,42 @@ class SettingsManager {
             return {
                 model: currentModel,
                 temperature: currentTemp,
+                top_p: (() => {
+                    try {
+                        const topPSelector = $(selectors.topP);
+                        const topPCounterSelector = $(selectors.topPCounter);
+                        const topPVal = topPSelector.length ? topPSelector.val() : '';
+                        const topPCounterVal = topPCounterSelector.length ? topPCounterSelector.val() : '';
+                        const parsedTopP = parseFloat(topPVal || topPCounterVal || 1.0);
+                        if (!isNaN(parsedTopP) && parsedTopP >= 0 && parsedTopP <= 1) {
+                            return parsedTopP;
+                        } else {
+                            console.warn('STMTL: Invalid top_p value, using default 1.0:', topPVal, topPCounterVal);
+                            return 1.0;
+                        }
+                    } catch (e) {
+                        console.warn('STMTL: Error reading top_p, using default 1.0:', e);
+                        return 1.0;
+                    }
+                })(),
+                top_k: (() => {
+                    try {
+                        const topKSelector = $(selectors.topK);
+                        const topKCounterSelector = $(selectors.topKCounter);
+                        const topKVal = topKSelector.length ? topKSelector.val() : '';
+                        const topKCounterVal = topKCounterSelector.length ? topKCounterSelector.val() : '';
+                        let parsedTopK = parseFloat(topKVal || topKCounterVal || 0);
+                        if (isNaN(parsedTopK) || parsedTopK < 0) {
+                            console.warn('STMTL: Invalid top_k value, using default 0:', topKVal, topKCounterVal);
+                            parsedTopK = 0;
+                        }
+                        // Ensure integer
+                        return Math.round(parsedTopK);
+                    } catch (e) {
+                        console.warn('STMTL: Error reading top_k, using default 0:', e);
+                        return 0;
+                    }
+                })(),
                 completionSource: apiInfo.completionSource,
                 savedAt: moment().toISOString()
             };
@@ -1139,6 +1203,8 @@ class SettingsManager {
             return {
                 model: '',
                 temperature: 0.7,
+                top_p: 1.0,
+                top_k: 0,
                 completionSource: 'unknown',
                 savedAt: moment().toISOString()
             };
@@ -1291,7 +1357,11 @@ function getApiSelectors(completionSource = null) {
     return {
         model: MODEL_SELECTOR_MAP[completionSource] || SELECTORS.modelOpenai,
         temp: SELECTORS.tempOpenai,
-        tempCounter: SELECTORS.tempCounterOpenai
+        tempCounter: SELECTORS.tempCounterOpenai,
+        topP: SELECTORS.topPOpenai,
+        topPCounter: SELECTORS.topPCounterOpenai,
+        topK: SELECTORS.topKOpenai,
+        topKCounter: SELECTORS.topKCounterOpenai
     };
 }
 
@@ -1424,10 +1494,14 @@ function formatSettingsInfo(settings) {
     // Validate and sanitize values
     const model = (settings.model && typeof settings.model === 'string') ? settings.model.trim() || 'N/A' : 'N/A';
     const temperature = (typeof settings.temperature === 'number' && !isNaN(settings.temperature)) ? settings.temperature : 'N/A';
+    const top_p = (typeof settings.top_p === 'number' && !isNaN(settings.top_p)) ? settings.top_p : 'N/A';
+    const top_k = (typeof settings.top_k === 'number' && !isNaN(settings.top_k)) ? settings.top_k : 'N/A';
     const completionSource = (settings.completionSource && typeof settings.completionSource === 'string') ? settings.completionSource.trim() || 'N/A' : 'N/A';
 
     return `Model: ${model}
 Temp: ${temperature}
+Top P: ${top_p}
+Top K: ${top_k}
 Source: ${completionSource}
 Saved: ${saved}`;
 }
@@ -1634,7 +1708,7 @@ async function refreshPopupContent() {
 
     try {
         const content = await getPopupContent();
-        const header = '🌡️ Model & Temperature Settings';
+        const header = '🌡️ Model, Temperature, Top P & Top K Settings';
         const newContent = `<h3>${header}</h3>${content}`;
 
         const tempContainer = document.createElement('div');
@@ -1666,7 +1740,7 @@ async function showPopup() {
     }
 
     const content = await getPopupContent();
-    const header = '🌡️ Model & Temperature Settings';
+    const header = '🌡️ Model, Temperature, Top P & Top K Settings';
     const contentWithHeader = `<h3>${header}</h3>${content}`;
     const context = await settingsManager.chatContext.getCurrent();
     const isGroupChat = context.isGroupChat;
@@ -1887,7 +1961,7 @@ function createUI() {
         <div id="stmtl-menu-item-container" class="extension_container interactable" tabindex="0">
             <div id="stmtl-menu-item" class="list-group-item flex-container flexGap5 interactable" tabindex="0">
                 <div class="fa-fw fa-solid fa-temperature-half extensionsMenuExtensionButton"></div>
-                <span>Model/Temp Settings</span>
+                <span>Model/Temp/Top P/Top K Settings</span>
             </div>
         </div>
     `);
@@ -2080,6 +2154,10 @@ function setupEventListeners() {
     const allModelSelectors = Object.values(MODEL_SELECTOR_MAP).concat([
         SELECTORS.tempOpenai,
         SELECTORS.tempCounterOpenai,
+        SELECTORS.topPOpenai,
+        SELECTORS.topPCounterOpenai,
+        SELECTORS.topKOpenai,
+        SELECTORS.topKCounterOpenai,
         SELECTORS.completionSource
     ]).join(', ');
 
@@ -2087,9 +2165,16 @@ function setupEventListeners() {
         console.log('STMTL: Model/temp/completion setting changed:', e.target.id);
         // Don't auto-save if we're currently applying settings (prevents feedback loop)
         if (!isApplyingSettings) {
-            // Use immediate call instead of debounced for temperature changes
+            // Use debounced save for temperature and top_p changes
             // Model changes are handled by CHATCOMPLETION_MODEL_CHANGED event
-            if (e.target.id === 'temp_openai' || e.target.id === 'temp_counter_openai') {
+            if (
+                e.target.id === 'temp_openai' ||
+                e.target.id === 'temp_counter_openai' ||
+                e.target.id === 'top_p_openai' ||
+                e.target.id === 'top_p_counter_openai' ||
+                e.target.id === 'top_k_openai' ||
+                e.target.id === 'top_k_counter_openai'
+            ) {
                 debouncedModelSettingsChanged();
             }
         } else {
