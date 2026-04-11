@@ -40,6 +40,7 @@ const SELECTORS = {
     modelCohere: '#model_cohere_select',
     modelPerplexity: '#model_perplexity_select',
     modelGroq: '#model_groq_select',
+    modelSiliconflow: '#model_siliconflow_select',
     modelNanogpt: '#model_nanogpt_select',
     modelDeepseek: '#model_deepseek_select',
     modelVertexai: '#model_vertexai_select',
@@ -49,8 +50,11 @@ const SELECTORS = {
     modelMoonshot: '#model_moonshot_select',
     modelFireworks: '#model_fireworks_select',
     modelCometapi: '#model_cometapi_select',
-    modelAzureOpenai: '#model_azure_openai_select',
+    modelAzureOpenai: '#azure_openai_model',
     modelElectronhub: '#model_electronhub_select',
+    modelNavy: '#model_navy_select',
+    modelZanity: '#model_zanity_select',
+    modelZai: '#model_zai_select',
     tempOpenai: '#temp_openai',
     tempCounterOpenai: '#temp_counter_openai',
     topPOpenai: '#top_p_openai',
@@ -71,6 +75,7 @@ const MODEL_SELECTOR_MAP = {
     'cohere': SELECTORS.modelCohere,
     'perplexity': SELECTORS.modelPerplexity,
     'groq': SELECTORS.modelGroq,
+    'siliconflow': SELECTORS.modelSiliconflow,
     'nanogpt': SELECTORS.modelNanogpt,
     'deepseek': SELECTORS.modelDeepseek,
     'vertexai': SELECTORS.modelVertexai,
@@ -81,7 +86,10 @@ const MODEL_SELECTOR_MAP = {
     'fireworks': SELECTORS.modelFireworks,
     'cometapi': SELECTORS.modelCometapi,
     'azure_openai': SELECTORS.modelAzureOpenai,
-    'electronhub': SELECTORS.modelElectronhub
+    'electronhub': SELECTORS.modelElectronhub,
+    'navy': SELECTORS.modelNavy,
+    'zanity': SELECTORS.modelZanity,
+    'zai': SELECTORS.modelZai
 };
 
 const DEFAULT_SETTINGS = {
@@ -514,8 +522,8 @@ class StorageAdapter {
         }
         
         try {
-            const group = groups?.find(x => x.id === groupId);
-            const settings = group?.chat_metadata?.[this.EXTENSION_KEY] || null;
+            const metadata = this._getGroupChatMetadata(groupId);
+            const settings = metadata?.[this.EXTENSION_KEY] || null;
             
             if (settings) {
                 console.log('STMTL: Retrieved group chat settings:', settings);
@@ -543,11 +551,23 @@ class StorageAdapter {
                 return false;
             }
 
-            if (!group.chat_metadata) {
-                group.chat_metadata = {};
+            if (this._isActiveGroupChat(groupId)) {
+                const metadata = this._getCurrentChatMetadata();
+                if (!metadata) {
+                    console.warn('STMTL: Cannot save active group chat settings - no chat metadata available');
+                    return false;
+                }
+
+                metadata[this.EXTENSION_KEY] = settings;
+                this._triggerMetadataSave();
+            } else {
+                if (!group.chat_metadata) {
+                    group.chat_metadata = {};
+                }
+
+                group.chat_metadata[this.EXTENSION_KEY] = settings;
             }
 
-            group.chat_metadata[this.EXTENSION_KEY] = settings;
             console.log('STMTL: Saved group chat settings:', settings);
 
             try {
@@ -571,8 +591,20 @@ class StorageAdapter {
 
         try {
             const group = groups?.find(x => x.id === groupId);
-            if (group?.chat_metadata?.[this.EXTENSION_KEY]) {
-                delete group.chat_metadata[this.EXTENSION_KEY];
+            const metadata = this._isActiveGroupChat(groupId)
+                ? this._getCurrentChatMetadata()
+                : group?.chat_metadata;
+            const hadSettings = !!(metadata?.[this.EXTENSION_KEY] || group?.chat_metadata?.[this.EXTENSION_KEY]);
+
+            if (metadata?.[this.EXTENSION_KEY]) {
+                delete metadata[this.EXTENSION_KEY];
+            }
+
+            if (hadSettings) {
+                if (this._isActiveGroupChat(groupId)) {
+                    this._triggerMetadataSave();
+                }
+
                 console.log('STMTL: Deleted group chat settings');
                 
                 try {
@@ -611,6 +643,19 @@ class StorageAdapter {
             return window.getCurrentChatMetadata();
         }
         return null;
+    }
+
+    _isActiveGroupChat(groupId) {
+        return Boolean(groupId) && selected_group === groupId;
+    }
+
+    _getGroupChatMetadata(groupId) {
+        if (this._isActiveGroupChat(groupId)) {
+            return this._getCurrentChatMetadata();
+        }
+
+        const group = groups?.find(x => x.id === groupId);
+        return group?.chat_metadata || null;
     }
 
     _triggerMetadataSave() {
@@ -1241,7 +1286,9 @@ class SettingsManager {
         // This means the user wants stored settings to be applied when switching contexts
         if (context.isGroupChat) {
             return extensionSettings.moduleSettings.enableGroupMemory ||
-                   extensionSettings.moduleSettings.enableChatMemory;
+                   extensionSettings.moduleSettings.enableChatMemory ||
+                   extensionSettings.moduleSettings.enableCharacterMemory ||
+                   extensionSettings.moduleSettings.preferIndividualCharacterInGroup;
         } else {
             return extensionSettings.moduleSettings.enableCharacterMemory ||
                    extensionSettings.moduleSettings.enableChatMemory;
@@ -2113,12 +2160,14 @@ function setupEventListeners() {
                 }
             }, 'model change auto-save');
 
-            registerEventHandler(event_types.MESSAGE_RECEIVED, async (message) => {
+            registerEventHandler(event_types.MESSAGE_RECEIVED, async (messageId) => {
+                const message = getContext?.()?.chat?.[messageId];
+
                 if (message && !message.is_user) {
-                    const speakerName = message.name;
+                    const speakerName = typeof message.name === 'string' ? message.name.trim() : '';
                     const extensionSettings = storageAdapter?.getExtensionSettings();
 
-                    if (extensionSettings?.moduleSettings.autoSaveCharacter && isExtensionEnabled) {
+                    if (speakerName && extensionSettings?.moduleSettings.autoSaveCharacter && isExtensionEnabled) {
                         console.log(`STMTL: Auto-saving settings for speaker: ${speakerName}`);
                         await settingsManager?.saveCurrentSettingsForCharacter(speakerName, true);
                     }
