@@ -2,7 +2,7 @@ import { eventSource, event_types, saveSettingsDebounced, chat_metadata, name2, 
 import { extension_settings, saveMetadataDebounced, getContext } from '../../../extensions.js';
 import { Popup, POPUP_TYPE } from '../../../popup.js';
 import { lodash, moment, Handlebars, DOMPurify, morphdom } from '../../../../lib.js';
-import { selected_group, groups, editGroup } from '../../../group-chats.js';
+import { selected_group, groups } from '../../../group-chats.js';
 
 // ===== CONSTANTS AND CONFIGURATION =====
 
@@ -545,37 +545,20 @@ class StorageAdapter {
         }
 
         try {
-            const group = groups?.find(x => x.id === groupId);
-            if (!group) {
-                console.warn('STMTL: Cannot save group chat settings - group not found');
+            if (!this._isActiveGroupChat(groupId)) {
+                console.warn('STMTL: Cannot save inactive group chat settings - activate the group chat first');
                 return false;
             }
 
-            if (this._isActiveGroupChat(groupId)) {
-                const metadata = this._getCurrentChatMetadata();
-                if (!metadata) {
-                    console.warn('STMTL: Cannot save active group chat settings - no chat metadata available');
-                    return false;
-                }
-
-                metadata[this.EXTENSION_KEY] = settings;
-                this._triggerMetadataSave();
-            } else {
-                if (!group.chat_metadata) {
-                    group.chat_metadata = {};
-                }
-
-                group.chat_metadata[this.EXTENSION_KEY] = settings;
+            const metadata = this._getCurrentChatMetadata();
+            if (!metadata) {
+                console.warn('STMTL: Cannot save active group chat settings - no chat metadata available');
+                return false;
             }
 
+            metadata[this.EXTENSION_KEY] = settings;
+            this._triggerMetadataSave();
             console.log('STMTL: Saved group chat settings:', settings);
-
-            try {
-                await editGroup(groupId, false, false);
-            } catch (error) {
-                console.warn('STMTL: Error calling editGroup:', error);
-            }
-            
             return true;
         } catch (error) {
             console.error('STMTL: Error saving group chat settings:', error);
@@ -590,29 +573,21 @@ class StorageAdapter {
         }
 
         try {
-            const group = groups?.find(x => x.id === groupId);
-            const metadata = this._isActiveGroupChat(groupId)
-                ? this._getCurrentChatMetadata()
-                : group?.chat_metadata;
-            const hadSettings = !!(metadata?.[this.EXTENSION_KEY] || group?.chat_metadata?.[this.EXTENSION_KEY]);
+            if (!this._isActiveGroupChat(groupId)) {
+                console.warn('STMTL: Cannot delete inactive group chat settings - activate the group chat first');
+                return false;
+            }
+
+            const metadata = this._getCurrentChatMetadata();
+            const hadSettings = !!metadata?.[this.EXTENSION_KEY];
 
             if (metadata?.[this.EXTENSION_KEY]) {
                 delete metadata[this.EXTENSION_KEY];
             }
 
             if (hadSettings) {
-                if (this._isActiveGroupChat(groupId)) {
-                    this._triggerMetadataSave();
-                }
-
+                this._triggerMetadataSave();
                 console.log('STMTL: Deleted group chat settings');
-                
-                try {
-                    await editGroup(groupId, false, false);
-                } catch (error) {
-                    console.warn('STMTL: Error calling editGroup:', error);
-                }
-                
                 return true;
             }
             
@@ -654,8 +629,7 @@ class StorageAdapter {
             return this._getCurrentChatMetadata();
         }
 
-        const group = groups?.find(x => x.id === groupId);
-        return group?.chat_metadata || null;
+        return null;
     }
 
     _triggerMetadataSave() {
@@ -734,6 +708,7 @@ class SettingsManager {
         this.chatContext = new ChatContext();
         this.currentSettings = this._getEmptySettings();
         this._queueProcessingTimeout = null;
+        this._contextProcessingPromise = null;
         this._confirming = false;
     }
 
@@ -830,64 +805,63 @@ class SettingsManager {
 
         contextChangeQueue.push(timestamp);
         console.log('STMTL: Context change queued', `(queue size: ${contextChangeQueue.length})`);
-        this._processContextChangeQueue();
+        return this._processContextChangeQueue();
     }
 
     async _processContextChangeQueue() {
         if (processingContext) {
             console.log('STMTL: Context change already in progress, queued');
-            return;
+            return this._contextProcessingPromise;
         }
 
         if (contextChangeQueue.length === 0) {
-            return;
+            return false;
         }
 
         processingContext = true;
-        try {
-            // Process the latest context change (discard duplicates)
-            const latestTimestamp = contextChangeQueue[contextChangeQueue.length - 1];
-            const queueSize = contextChangeQueue.length;
-            contextChangeQueue.length = 0;
+        this._contextProcessingPromise = (async () => {
+            try {
+                while (contextChangeQueue.length > 0) {
+                    const queueSize = contextChangeQueue.length;
+                    contextChangeQueue.length = 0;
 
-            console.log(`STMTL: Processing context change (processed ${queueSize} queued items)`);
-            this.chatContext.invalidate();
-            await this.loadCurrentSettings();
+                    console.log(`STMTL: Processing context change (processed ${queueSize} queued items)`);
+                    this.chatContext.invalidate();
+                    await this.loadCurrentSettings();
 
-            // Apply settings automatically when switching contexts with proper flag management
-            const extensionSettings = this.storage.getExtensionSettings();
-            const modeRaw = extensionSettings?.moduleSettings?.applyBehavior;
-            const mode = (modeRaw === 'always' || modeRaw === 'ask' || modeRaw === 'never') ? modeRaw : 'always';
+                    // Apply settings automatically when switching contexts with proper flag management
+                    const extensionSettings = this.storage.getExtensionSettings();
+                    const modeRaw = extensionSettings?.moduleSettings?.applyBehavior;
+                    const mode = (modeRaw === 'always' || modeRaw === 'ask' || modeRaw === 'never') ? modeRaw : 'always';
 
-            const shouldApplySettings = await this._shouldApplySettingsAutomatically();
-            console.log('STMTL: shouldApplySettings:', shouldApplySettings, 'mode:', mode, 'isApplyingSettings:', isApplyingSettings);
+                    const shouldApplySettings = await this._shouldApplySettingsAutomatically();
+                    console.log('STMTL: shouldApplySettings:', shouldApplySettings, 'mode:', mode, 'isApplyingSettings:', isApplyingSettings);
 
-            if (!shouldApplySettings) {
-                console.log('STMTL: Skipping auto application - memory disabled');
-            } else if (!isApplyingSettings) {
-                if (mode === 'always') {
-                    console.log('STMTL: Applying settings automatically (mode=always)');
-                    await this.applySettings();
-                } else if (mode === 'ask') {
-                    console.log('STMTL: Prompting before applying settings (mode=ask)');
-                    await this._confirmAndApply();
-                } else {
-                    console.log('STMTL: Skipping automatic settings application (mode=never)');
+                    if (!shouldApplySettings) {
+                        console.log('STMTL: Skipping auto application - memory disabled');
+                    } else if (!isApplyingSettings) {
+                        if (mode === 'always') {
+                            console.log('STMTL: Applying settings automatically (mode=always)');
+                            await this.applySettings();
+                        } else if (mode === 'ask') {
+                            console.log('STMTL: Prompting before applying settings (mode=ask)');
+                            await this._confirmAndApply();
+                        } else {
+                            console.log('STMTL: Skipping automatic settings application (mode=never)');
+                        }
+                    } else {
+                        console.log('STMTL: Skipping automatic settings application - currently applying');
+                    }
                 }
-            } else {
-                console.log('STMTL: Skipping automatic settings application - currently applying');
+            } catch (error) {
+                console.error('STMTL: Error processing context change queue:', error);
+            } finally {
+                processingContext = false;
+                this._contextProcessingPromise = null;
             }
-        } catch (error) {
-            console.error('STMTL: Error processing context change queue:', error);
-        } finally {
-            processingContext = false;
+        })();
 
-            // Schedule processing of any additional changes that came in while we were processing
-            if (contextChangeQueue.length > 0) {
-                // Use debounced approach instead of immediate setTimeout
-                this._scheduleQueueProcessing();
-            }
-        }
+        return this._contextProcessingPromise;
     }
 
     _scheduleQueueProcessing() {
@@ -2062,7 +2036,7 @@ function setupEventListeners() {
                 onCharacterChanged();
             }, 'group chat creation');
 
-            registerEventHandler(event_types.GROUP_MEMBER_DRAFTED, (chId) => {
+            registerEventHandler(event_types.GROUP_MEMBER_DRAFTED, async (chId) => {
                 let characterProcessed = false;
 
                 try {
@@ -2106,7 +2080,7 @@ function setupEventListeners() {
 
                 // Only trigger context change if character was successfully processed
                 if (characterProcessed) {
-                    settingsManager.onContextChanged();
+                    await settingsManager.onContextChanged();
                 } else {
                     console.warn('STMTL: Skipping context change due to failed character processing');
                 }
