@@ -2,6 +2,11 @@
 
 ← [Back to README](README.md)
 
+## [4.0.1] - 2026-04-22
+
+### Fixed
+- **SillyTavern Group Metadata Compatibility**: Updated group chat setting saves to use active chat metadata.
+
 ## [4.0.0] - 2025-09-24
 
 ### 🚨 BREAKING CHANGES

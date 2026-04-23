@@ -505,10 +505,11 @@ class StorageAdapter {
 
         try {
             // For group chats, save to the global chat_metadata instead of group.chat_metadata
-            // The global chat_metadata gets automatically persisted by SillyTavern
+            // The global chat_metadata gets persisted in the active group chat file header.
             if (typeof chat_metadata !== 'undefined') {
                 chat_metadata[this.EXTENSION_KEY] = settings;
                 if (DEBUG_MODE) console.log('STCL: Saved group chat settings to chat_metadata:', settings);
+                this._triggerMetadataSave();
                 return true;
             } else {
                 if (DEBUG_MODE) console.warn('STCL: chat_metadata not available');
@@ -531,6 +532,7 @@ class StorageAdapter {
             if (typeof chat_metadata !== 'undefined' && chat_metadata[this.EXTENSION_KEY]) {
                 delete chat_metadata[this.EXTENSION_KEY];
                 if (DEBUG_MODE) console.log('STCL: Deleted group chat settings from chat_metadata');
+                this._triggerMetadataSave();
                 return true;
             }
 
@@ -600,7 +602,8 @@ class StorageAdapter {
         if (!groupId) return false;
         try {
             const group = groups?.find(x => x.id === groupId);
-            return !!group?.chat_metadata?.STMTL;
+            const metadata = this._getCurrentChatMetadata();
+            return !!metadata?.STMTL || !!group?.chat_metadata?.STMTL;
         } catch (error) {
             if (DEBUG_MODE) console.warn('STCL: Error checking old group chat settings:', error);
             return false;
@@ -643,7 +646,8 @@ class StorageAdapter {
         if (!groupId) return null;
         try {
             const group = groups?.find(x => x.id === groupId);
-            return group?.chat_metadata?.STMTL || null;
+            const metadata = this._getCurrentChatMetadata();
+            return metadata?.STMTL || group?.chat_metadata?.STMTL || null;
         } catch (error) {
             if (DEBUG_MODE) console.warn('STCL: Error getting old group chat settings:', error);
             return null;
@@ -722,19 +726,29 @@ class StorageAdapter {
     async deleteOldGroupChatSettings(groupId) {
         if (!groupId) return false;
         try {
+            let deleted = false;
+            const metadata = this._getCurrentChatMetadata();
+            if (metadata?.STMTL) {
+                delete metadata.STMTL;
+                deleted = true;
+                this._triggerMetadataSave();
+                if (DEBUG_MODE) console.log(`STCL: Removed old STMTL group chat settings from chat metadata for group "${groupId}"`);
+            }
+
             const group = groups?.find(x => x.id === groupId);
             if (group?.chat_metadata?.STMTL) {
                 delete group.chat_metadata.STMTL;
+                deleted = true;
                 if (DEBUG_MODE) console.log(`STCL: Removed old STMTL group chat settings for group "${groupId}"`);
                 try {
                     await editGroup(groupId, false, false);
-                    return true;
                 } catch (error) {
                     console.warn('STCL: Error saving group after STMTL cleanup:', error);
                     return false;
                 }
             }
-            return false;
+
+            return deleted;
         } catch (error) {
             console.error('STCL: Error deleting old group chat settings:', error);
             return false;
