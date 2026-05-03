@@ -145,3 +145,7 @@ For detailed information about changes, updates, and new features in each versio
 ---
 
 *Made with love (and Claude Sonnet 4)* 🤖
+
+## License
+
+This project is licensed under the GNU Affero General Public License v3.0. See [LICENSE](./LICENSE).
